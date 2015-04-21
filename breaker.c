@@ -1,7 +1,7 @@
 /*
  *
  * SPACE INVADERS FOR AVR90USB1286
- * TODO: adapt ruota.c to stop using RIOS (timers/interrupts interfere)
+ *
  */
 
 #include <stdint.h>
@@ -104,15 +104,23 @@ ISR(TIMER1_COMPA_vect)
             }
         }
     }
+    uint8_t yinc = 0;
     //Move monsters
-    if(leftmost < MONSTER_PADDING_X || rightmost > LCDWIDTH - MONSTER_PADDING_X)
+    if(leftmost < MONSTER_PADDING_X || rightmost > LCDWIDTH - MONSTER_PADDING_X) {
         xinc = -xinc;
+        yinc = MONSTER_SPEED;
+    }
     has_monsters = 0;
     for(x = 0; x < MONSTERS_X; x++) {
         for(y = 0; y < MONSTERS_Y; y++) {
             if(monsters[x][y].alive) {
                 monsters[x][y].rect.left += xinc;
                 monsters[x][y].rect.right += xinc;
+                monsters[x][y].rect.top += yinc;
+                monsters[x][y].rect.bottom += yinc;
+                if(monsters[x][y].rect.bottom >= cannon.rect.top) {
+                    lives = 0;
+                }
                 has_monsters = 1;
             }
         }

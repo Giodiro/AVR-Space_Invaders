@@ -34,6 +34,7 @@
 
 #define MAX_LASERS      7
 #define LASER_SPEED     1
+#define MAX_MONSTER_LASERS 15
 
 #define LCDWIDTH        320
 #define LCDHEIGHT       240
@@ -54,6 +55,8 @@ volatile sprite cannon;
 volatile sprite last_monsters[6][5];
 volatile sprite last_lasers[MAX_LASERS];
 volatile sprite last_cannon;
+sprite monster_lasers[MAX_MONSTER_LASERS];
+sprite last_monster_lasers[MAX_MONSTER_LASERS];
 //memory used for each sprite: 2b*4+1b = 9b
 //total memory = 9b*(7+30+1)*2 = 18b*38 = 684b
 
@@ -67,6 +70,8 @@ volatile uint8_t fps = 0;
 static inline uint8_t intersect_sprite(sprite s1, uint8_t w1, uint8_t h1, 
                                        sprite s2, uint8_t w2, uint8_t h2);
 uint8_t collision(sprite *monster);
+void reset_lasers(void);
+uint16_t rand(void);
 
 ISR(TIMER1_COMPA_vect) {
     //stack space = 5b (x, y, l, rotary, yinc)
@@ -78,17 +83,43 @@ ISR(TIMER1_COMPA_vect) {
     rightmost = 0;
     leftmost = LCDWIDTH;
     yinc = 0;
-    has_monsters = 0;
     for(x = 0; x < MONSTERS_X; x++) {
         for(y = 0; y < MONSTERS_Y; y++) {
             if(monsters[x][y].alive) {
                 //Collision
                 if(collision(&monsters[x][y]))
                     continue;
+                //Update left/rightmost
                 if(monsters[x][y].x + MONSTER_WIDTH > rightmost)
                     rightmost = monsters[x][y].x + MONSTER_WIDTH;
                 if(monsters[x][y].x < leftmost)
                     leftmost = monsters[x][y].x;
+                //Monster shoot
+                if(rand() > 65530) {
+                    for(l = 0; l < MAX_MONSTER_LASERS; l++) {
+                        if(!monster_lasers[l].alive) {
+                            monster_lasers[l].x = monsters[x][y].x + (MONSTER_WIDTH / 2);
+                            monster_lasers[l].y = monsters[x][y].y + MONSTER_HEIGHT;
+                            monster_lasers[l].alive = TRUE;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    //Move & Collision Monster Lasers
+    for(l = 0; l < MAX_MONSTER_LASERS; l++) {
+        if(monster_lasers[l].alive) {
+            monster_lasers[l].y += LASER_SPEED;
+            if(monster_lasers[l].y >= LCDHEIGHT - LASER_HEIGHT)
+                monster_lasers[l].alive = FALSE;
+            else if(intersect_sprite(
+                    cannon, CANNON_WIDTH, CANNON_HEIGHT,
+                    monster_lasers[l], LASER_WIDTH, LASER_HEIGHT)) {
+                lives--;
+                reset_lasers();
+                return;
             }
         }
     }
@@ -100,12 +131,11 @@ ISR(TIMER1_COMPA_vect) {
                 lasers[l].alive = FALSE;
             }
         } else if (shoot) {
-            //Shoot
+            //Cannon Shoot
             shoot = FALSE; //Can only shoot once
-            uint16_t left = cannon.x + (CANNON_WIDTH / 2) - LASER_WIDTH/2;
-            lasers[l].x = left;
+            lasers[l].x = cannon.x + (CANNON_WIDTH / 2) - LASER_WIDTH/2;
             lasers[l].y = cannon.y - LASER_HEIGHT;
-            lasers[l].alive = 1;
+            lasers[l].alive = TRUE;
         }
     }
     //Move monsters
@@ -113,6 +143,7 @@ ISR(TIMER1_COMPA_vect) {
         xinc = -xinc;
         yinc = MONSTER_SPEED;
     }
+    has_monsters = 0;
     for(x = 0; x < MONSTERS_X; x++) {
         for(y = 0; y < MONSTERS_Y; y++) {
             if(monsters[x][y].alive) {
@@ -174,6 +205,23 @@ ISR(INT6_vect) {
         }
         last_lasers[l] = lasers[l];
     }
+    for(l = 0; l < MAX_MONSTER_LASERS; l++) {
+        if(monster_lasers[l].alive) {
+            fill_rectangle_c(last_monster_lasers[l].x,
+                           last_monster_lasers[l].y,
+                           LASER_WIDTH, LASER_HEIGHT,
+                           display.background);
+            fill_rectangle_c(monster_lasers[l].x, monster_lasers[l].y,
+                           LASER_WIDTH, LASER_HEIGHT,
+                           BLUE);
+        } else if(last_monster_lasers[l].alive) { //Has just died
+            fill_rectangle_c(last_monster_lasers[l].x,
+                           last_monster_lasers[l].y,
+                           LASER_WIDTH, LASER_HEIGHT,
+                           display.background);
+        }
+        last_monster_lasers[l] = monster_lasers[l];
+    }
     fill_rectangle_c(last_cannon.x, last_cannon.y,
                    CANNON_WIDTH, CANNON_HEIGHT,
                    display.background);
@@ -188,10 +236,10 @@ ISR(TIMER3_COMPA_vect)
 {
     scan_switches();
     scan_encoder();
-	/*char buffer[4];
-	sprintf(buffer, "%03d", fps);
-	display_string_xy(buffer, 10, 2);
-	fps = 0;*/
+	//char buffer[6];
+	//sprintf(buffer, "%05d", rand());
+	//display_string  (buffer);
+	/*fps = 0;*/
 }
 
 void os_init(void) {
@@ -264,6 +312,16 @@ int main() {
     } while(1);
 }
 
+void reset_lasers(void) {
+    uint8_t l;
+    for(l = 0; l < MAX_LASERS; l++) {
+        lasers[l].alive = FALSE;
+    }
+    for(l = 0; l < MAX_MONSTER_LASERS; l++) {
+        monster_lasers[l].alive = FALSE;
+    }
+}
+
 uint8_t collision(sprite *monster) {
     uint8_t l;
     for(l = 0; l < MAX_LASERS; l++) {
@@ -284,4 +342,15 @@ static inline uint8_t intersect_sprite(sprite s1, uint8_t w1, uint8_t h1,
         || s2.x + w2 < s1.x
         || s2.y > s1.y + h1
         || s2.y + h2 < s1.y);
+}
+
+uint16_t rand() {
+    static uint16_t lfsr = 0xACE1u;
+
+    unsigned lsb = lfsr & 1;  /* Get lsb (i.e., the output bit). */
+    lfsr >>= 1;               /* Shift register */
+    if (lsb == 1)             /* Only apply toggle mask if output bit is 1. */
+        lfsr ^= 0xB400u;        /* Apply toggle mask, value has 1 at bits corresponding
+                             * to taps, 0 elsewhere. */
+    return lfsr;
 }

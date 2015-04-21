@@ -42,83 +42,83 @@
 #define TRUE            1
 
 typedef struct {
-    rectangle rect;
+    uint16_t x, y;
     uint8_t alive;
 } sprite;
 
-const sprite start_cannon = {{(LCDWIDTH-CANNON_WIDTH)/2, (LCDWIDTH+CANNON_WIDTH)/2, LCDHEIGHT-CANNON_HEIGHT-1, LCDHEIGHT-1}, 1};
+const sprite start_cannon = {(LCDWIDTH-CANNON_WIDTH)/2, LCDHEIGHT-CANNON_HEIGHT-1, 1};
 
-volatile sprite lasers[MAX_LASERS];
 volatile sprite monsters[6][5];
+volatile sprite lasers[MAX_LASERS];
 volatile sprite cannon;
 volatile sprite last_monsters[6][5];
 volatile sprite last_lasers[MAX_LASERS];
 volatile sprite last_cannon;
+//memory used for each sprite: 2b*4+1b = 9b
+//total memory = 9b*(7+30+1)*2 = 18b*38 = 684b
 
 volatile uint16_t leftmost, rightmost;
 volatile uint16_t score;
 volatile uint8_t lives;
 volatile uint8_t has_monsters;
 volatile uint8_t fps = 0;
+//total memory = 7b
 
-uint8_t intersect_rect(rectangle r1, rectangle r2);
+static inline uint8_t intersect_sprite(sprite s1, uint8_t w1, uint8_t h1, 
+                                       sprite s2, uint8_t w2, uint8_t h2);
+uint8_t collision(sprite *monster);
 
-ISR(TIMER1_COMPA_vect)
-{
+ISR(TIMER1_COMPA_vect) {
+    //stack space = 5b (x, y, l, rotary, yinc)
     uint8_t x, y, l;
     static int8_t xinc = MONSTER_SPEED;
-    for(l = 0; l < MAX_LASERS; l++) {
-        if(lasers[l].rect.top <= LASER_SPEED) {
-            lasers[l].alive = FALSE;
-            continue;
-        }
-        if(lasers[l].alive && 
-            lasers[l].rect.right >= leftmost &&
-            lasers[l].rect.left <= rightmost) {
-            //Collision check
-            for(x = 0; x < MONSTERS_X; x++) {
-                for(y = 0; y < MONSTERS_Y; y++) {
-                    if(monsters[x][y].alive && 
-                      intersect_rect(lasers[l].rect, monsters[x][y].rect)) {
-                        lasers[l].alive = FALSE;
-                        monsters[x][y].alive = FALSE;
-                    }
-                }
-            }
-        }
-        //Move lasers
-        if(lasers[l].alive) {
-            lasers[l].rect.bottom -= LASER_SPEED;
-            lasers[l].rect.top -= LASER_SPEED;
-        }
-    }
+    uint8_t shoot, yinc;
+    
+    shoot = get_switch_short(_BV(SWC));
     rightmost = 0;
     leftmost = LCDWIDTH;
+    yinc = 0;
+    has_monsters = 0;
     for(x = 0; x < MONSTERS_X; x++) {
         for(y = 0; y < MONSTERS_Y; y++) {
             if(monsters[x][y].alive) {
-                if(monsters[x][y].rect.right > rightmost)
-                    rightmost = monsters[x][y].rect.right;
-                if(monsters[x][y].rect.left < leftmost)
-                    leftmost = monsters[x][y].rect.left;
+                //Collision
+                if(collision(&monsters[x][y]))
+                    continue;
+                if(monsters[x][y].x + MONSTER_WIDTH > rightmost)
+                    rightmost = monsters[x][y].x + MONSTER_WIDTH;
+                if(monsters[x][y].x < leftmost)
+                    leftmost = monsters[x][y].x;
             }
         }
     }
-    uint8_t yinc = 0;
+    for(l = 0; l < MAX_LASERS; l++) {
+        if(lasers[l].alive) {
+            //Move lasers
+            lasers[l].y -= LASER_SPEED;
+            if(lasers[l].y <= LASER_SPEED) {
+                lasers[l].alive = FALSE;
+            }
+        } else if (shoot) {
+            //Shoot
+            shoot = FALSE; //Can only shoot once
+            uint16_t left = cannon.x + (CANNON_WIDTH / 2) - LASER_WIDTH/2;
+            lasers[l].x = left;
+            lasers[l].y = cannon.y - LASER_HEIGHT;
+            lasers[l].alive = 1;
+        }
+    }
     //Move monsters
     if(leftmost < MONSTER_PADDING_X || rightmost > LCDWIDTH - MONSTER_PADDING_X) {
         xinc = -xinc;
         yinc = MONSTER_SPEED;
     }
-    has_monsters = 0;
     for(x = 0; x < MONSTERS_X; x++) {
         for(y = 0; y < MONSTERS_Y; y++) {
             if(monsters[x][y].alive) {
-                monsters[x][y].rect.left += xinc;
-                monsters[x][y].rect.right += xinc;
-                monsters[x][y].rect.top += yinc;
-                monsters[x][y].rect.bottom += yinc;
-                if(monsters[x][y].rect.bottom >= cannon.rect.top) {
+                monsters[x][y].x += xinc;
+                monsters[x][y].y += yinc;
+                if(monsters[x][y].y + MONSTER_HEIGHT >= cannon.y) {
                     lives = 0;
                 }
                 has_monsters = 1;
@@ -127,27 +127,11 @@ ISR(TIMER1_COMPA_vect)
     }
     //Move cannon
     int8_t rotary = os_enc_delta();
-    if(rotary < 0 && cannon.rect.left > 0) {
-        cannon.rect.left -= CANNON_SPEED;
-        cannon.rect.right -= CANNON_SPEED;
+    if(rotary < 0 && cannon.x > 0) {
+        cannon.x -= CANNON_SPEED;
     }
-    else if (rotary > 0 && cannon.rect.right < LCDWIDTH) {
-        cannon.rect.left += CANNON_SPEED;
-        cannon.rect.right += CANNON_SPEED;
-    }
-    //Shoot
-    if(get_switch_short(_BV(SWC))) {
-        for(l = 0; l < MAX_LASERS; l++) {
-            if(!lasers[l].alive) {
-                uint8_t left = (cannon.rect.left + cannon.rect.right)/2 - LASER_WIDTH/2;
-                lasers[l].rect.left = left;
-                lasers[l].rect.right = left + LASER_WIDTH;
-                lasers[l].rect.top = cannon.rect.top - LASER_HEIGHT;
-                lasers[l].rect.bottom = cannon.rect.top;
-                lasers[l].alive = 1;
-                break;
-            }
-        }
+    else if (rotary > 0 && cannon.x + MONSTER_WIDTH < LCDWIDTH) {
+        cannon.x += CANNON_SPEED;
     }
 }
 
@@ -156,25 +140,46 @@ ISR(INT6_vect) {
     for(x = 0; x < MONSTERS_X; x++) {
         for(y = 0; y < MONSTERS_Y; y++) {
             if(monsters[x][y].alive) {
-                fill_rectangle(last_monsters[x][y].rect, display.background);
-                fill_rectangle(monsters[x][y].rect, RED);
+                fill_rectangle_c(last_monsters[x][y].x,
+                               last_monsters[x][y].y, 
+                               MONSTER_WIDTH, MONSTER_HEIGHT, 
+                               display.background);
+                fill_rectangle_c(monsters[x][y].x,
+                               monsters[x][y].y,
+                               MONSTER_WIDTH, MONSTER_HEIGHT,
+                               RED);
             } else if(last_monsters[x][y].alive) { //Has just died
-                fill_rectangle(last_monsters[x][y].rect, display.background);
+                fill_rectangle_c(last_monsters[x][y].x,
+                               last_monsters[x][y].y,
+                               MONSTER_WIDTH, MONSTER_HEIGHT,
+                               display.background);
             }
             last_monsters[x][y] = monsters[x][y];
         }
     }
     for(l = 0; l < MAX_LASERS; l++) {
         if(lasers[l].alive) {
-            fill_rectangle(last_lasers[l].rect, display.background);
-            fill_rectangle(lasers[l].rect, BLUE);
+            fill_rectangle_c(last_lasers[l].x,
+                           last_lasers[l].y,
+                           LASER_WIDTH, LASER_HEIGHT,
+                           display.background);
+            fill_rectangle_c(lasers[l].x, lasers[l].y,
+                           LASER_WIDTH, LASER_HEIGHT,
+                           BLUE);
         } else if(last_lasers[l].alive) { //Has just died
-            fill_rectangle(last_lasers[l].rect, display.background);
+            fill_rectangle_c(last_lasers[l].x,
+                           last_lasers[l].y,
+                           LASER_WIDTH, LASER_HEIGHT,
+                           display.background);
         }
         last_lasers[l] = lasers[l];
     }
-    fill_rectangle(last_cannon.rect, display.background);
-    fill_rectangle(cannon.rect, GREEN);
+    fill_rectangle_c(last_cannon.x, last_cannon.y,
+                   CANNON_WIDTH, CANNON_HEIGHT,
+                   display.background);
+    fill_rectangle_c(cannon.x, cannon.y,
+                   CANNON_WIDTH, CANNON_HEIGHT,
+                   GREEN);
     last_cannon = cannon;
 	//fps++;
 }
@@ -223,12 +228,8 @@ int main() {
     do {
         for(x = 0; x < MONSTERS_X; x++) {
             for(y = 0; y < MONSTERS_Y; y++) {
-                uint16_t left = x*(MONSTER_WIDTH+MONSTER_PADDING_X)+MONSTER_PADDING_X;
-                uint16_t top = y*(MONSTER_HEIGHT+MONSTER_PADDING_Y)+MONSTER_TOP;
-                monsters[x][y].rect.left = left;
-                monsters[x][y].rect.right = left + MONSTER_WIDTH;
-                monsters[x][y].rect.top = top;
-                monsters[x][y].rect.bottom = top + MONSTER_HEIGHT;
+                monsters[x][y].x = x*(MONSTER_WIDTH+MONSTER_PADDING_X)+MONSTER_PADDING_X;
+                monsters[x][y].y = y*(MONSTER_HEIGHT+MONSTER_PADDING_Y)+MONSTER_TOP;
                 monsters[x][y].alive = 1;
             }
         }
@@ -263,9 +264,24 @@ int main() {
     } while(1);
 }
 
-uint8_t intersect_rect(rectangle r1, rectangle r2) {
-    return !(r2.left > r1.right
-        || r2.right < r1.left
-        || r2.top > r1.bottom
-        || r2.bottom < r1.top);
+uint8_t collision(sprite *monster) {
+    uint8_t l;
+    for(l = 0; l < MAX_LASERS; l++) {
+        if(lasers[l].alive &&
+           intersect_sprite(lasers[l], LASER_WIDTH, LASER_HEIGHT,
+                            *monster, MONSTER_WIDTH, MONSTER_HEIGHT)) {
+            lasers[l].alive = FALSE;
+            monster->alive = FALSE;
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
+static inline uint8_t intersect_sprite(sprite s1, uint8_t w1, uint8_t h1, 
+                                       sprite s2, uint8_t w2, uint8_t h2) {
+    return !(s2.x > s1.x + w1
+        || s2.x + w2 < s1.x
+        || s2.y > s1.y + h1
+        || s2.y + h2 < s1.y);
 }

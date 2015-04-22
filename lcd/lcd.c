@@ -14,6 +14,7 @@
 #include "lcd.h"
 
 lcd display;
+static inline uint16_t color565(uint8_t r, uint8_t g, uint8_t b);
 
 void init_lcd()
 {
@@ -227,6 +228,44 @@ void fill_rectangle_indexed(rectangle r, uint16_t* col)
             write_data16(*col++);
 }
 
+void write_image(uint16_t x, uint16_t y, uint8_t *bitmap) {
+    uint8_t width, height;
+    uint16_t color0, color1;
+    uint8_t j, k, by, bit_position = 0;
+    
+    width = pgm_read_byte(bitmap++);
+    height = pgm_read_byte(bitmap++);
+    color0 = color565(pgm_read_byte(bitmap++),
+                      pgm_read_byte(bitmap++),
+                      pgm_read_byte(bitmap++));
+    color1 = color565(pgm_read_byte(bitmap++),
+                      pgm_read_byte(bitmap++),
+                      pgm_read_byte(bitmap++));
+                      
+    write_cmd(COLUMN_ADDRESS_SET);
+    write_data16(x);
+    write_data16(x + width);
+    write_cmd(PAGE_ADDRESS_SET);
+    write_data16(y);
+    write_data16(y + height);
+    write_cmd(MEMORY_WRITE);
+    
+    by = pgm_read_byte(bitmap++);
+    for(j = 0; j < width; j++) {
+        for(k = 0; k < height; k++) {
+            if(by & (1 << bit_position)) {
+                write_data16(color1);
+            } else {
+                write_data16(color0);
+            }
+            if(++bit_position == 8) {
+                by = pgm_read_byte(bitmap++);
+                bit_position = 0;
+            }
+        }
+    }
+}
+
 void clear_screen()
 {
     display.x = 0;
@@ -303,5 +342,9 @@ void display_register(uint8_t reg)
 			display_char( '.' );
 		}
 	}
+}
+
+static inline uint16_t color565(uint8_t r, uint8_t g, uint8_t b) {
+	return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
 }
 

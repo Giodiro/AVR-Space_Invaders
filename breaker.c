@@ -7,9 +7,11 @@
 #include <stdint.h>
 #include <avr/io.h>
 #include <avr/interrupt.h>
+#include <avr/pgmspace.h>
 #include <stdio.h>
 #include "lcd.h"
 #include "encoder.h"
+#include "images.h"
 
 #define LED_INIT    DDRB  |=  _BV(PINB7)
 #define LED_ON      PORTB |=  _BV(PINB7)
@@ -25,10 +27,10 @@
 #define MONSTER_TOP     20
 #define MONSTER_PADDING_X 8
 #define MONSTER_PADDING_Y 3
-#define MONSTER_WIDTH   30
-#define MONSTER_HEIGHT  10
-#define MONSTERS_X      6
-#define MONSTERS_Y      5
+#define MONSTER_WIDTH   22
+#define MONSTER_HEIGHT  16
+#define MONSTERS_X      4
+#define MONSTERS_Y      2
 #define MONSTER_SPEED   1
 //MONSTERS_X * (MONSTER_PADDING_X + MONSTER_WIDTH) = 6*(30+8) = 228 < LCDWIDTH
 
@@ -168,6 +170,7 @@ ISR(TIMER1_COMPA_vect) {
 
 ISR(INT6_vect) {
     uint8_t x, y, l;
+    clear_screen();
     for(x = 0; x < MONSTERS_X; x++) {
         for(y = 0; y < MONSTERS_Y; y++) {
             if(monsters[x][y].alive) {
@@ -175,10 +178,14 @@ ISR(INT6_vect) {
                                last_monsters[x][y].y, 
                                MONSTER_WIDTH, MONSTER_HEIGHT, 
                                display.background);
-                fill_rectangle_c(monsters[x][y].x,
-                               monsters[x][y].y,
-                               MONSTER_WIDTH, MONSTER_HEIGHT,
-                               RED);
+                write_image(monsters[x][y].x,
+                            monsters[x][y].y,
+                            monster_1);
+               
+                //fill_rectangle_c(monsters[x][y].x,
+                //               monsters[x][y].y,
+                //               MONSTER_WIDTH, MONSTER_HEIGHT,
+                //               RED);
             } else if(last_monsters[x][y].alive) { //Has just died
                 fill_rectangle_c(last_monsters[x][y].x,
                                last_monsters[x][y].y,
@@ -322,12 +329,12 @@ void reset_lasers(void) {
     }
 }
 
-uint8_t collision(sprite *monster) {
+uint8_t collision(sprite * monster) {
     uint8_t l;
     for(l = 0; l < MAX_LASERS; l++) {
         if(lasers[l].alive &&
            intersect_sprite(lasers[l], LASER_WIDTH, LASER_HEIGHT,
-                            *monster, MONSTER_WIDTH, MONSTER_HEIGHT)) {
+                            * monster, MONSTER_WIDTH, MONSTER_HEIGHT)) {
             lasers[l].alive = FALSE;
             monster->alive = FALSE;
             return TRUE;
@@ -344,6 +351,7 @@ static inline uint8_t intersect_sprite(sprite s1, uint8_t w1, uint8_t h1,
         || s2.y + h2 < s1.y);
 }
 
+//http://en.wikipedia.org/wiki/Linear_feedback_shift_register
 uint16_t rand() {
     static uint16_t lfsr = 0xACE1u;
 

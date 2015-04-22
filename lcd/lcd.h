@@ -48,3 +48,4 @@ void display_char(char c);
 void display_string(char *str);
 void display_string_xy(char *str, uint16_t x, uint16_t y);
 void display_register(uint8_t reg);
+void write_image(uint16_t x, uint16_t y, uint8_t *bitmap);

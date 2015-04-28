@@ -44,3 +44,7 @@ _build/*
 Network Trash Folder
 Temporary Items
 .apdisk
+*.o
+*.d
+*.hex
+*.old

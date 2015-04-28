@@ -11,7 +11,6 @@
 #include <stdio.h>
 #include "lcd.h"
 #include "encoder.h"
-#include "images.h"
 
 #define LED_INIT    DDRB  |=  _BV(PINB7)
 #define LED_ON      PORTB |=  _BV(PINB7)
@@ -25,12 +24,12 @@
 #define LASER_HEIGHT    4
 
 #define MONSTER_TOP     20
-#define MONSTER_PADDING_X 8
-#define MONSTER_PADDING_Y 3
+#define MONSTER_PADDING_X 10
+#define MONSTER_PADDING_Y 9
 #define MONSTER_WIDTH   22
 #define MONSTER_HEIGHT  16
-#define MONSTERS_X      4
-#define MONSTERS_Y      2
+#define MONSTERS_X      6
+#define MONSTERS_Y      4
 #define MONSTER_SPEED   1
 //MONSTERS_X * (MONSTER_PADDING_X + MONSTER_WIDTH) = 6*(30+8) = 228 < LCDWIDTH
 
@@ -51,10 +50,10 @@ typedef struct {
 
 const sprite start_cannon = {(LCDWIDTH-CANNON_WIDTH)/2, LCDHEIGHT-CANNON_HEIGHT-1, 1};
 
-volatile sprite monsters[6][5];
+volatile sprite monsters[MONSTERS_X][MONSTERS_Y];
 volatile sprite lasers[MAX_LASERS];
 volatile sprite cannon;
-volatile sprite last_monsters[6][5];
+volatile sprite last_monsters[MONSTERS_X][MONSTERS_Y];
 volatile sprite last_lasers[MAX_LASERS];
 volatile sprite last_cannon;
 sprite monster_lasers[MAX_MONSTER_LASERS];
@@ -62,7 +61,9 @@ sprite last_monster_lasers[MAX_MONSTER_LASERS];
 //memory used for each sprite: 2b*4+1b = 9b
 //total memory = 9b*(7+30+1)*2 = 18b*38 = 684b
 
-volatile uint16_t leftmost, rightmost;
+uint16_t leftmost, rightmost, topmost, bottommost;
+volatile int16_t left_o, top_o;
+int16_t last_left_o, last_top_o;
 volatile uint16_t score;
 volatile uint8_t lives;
 volatile uint8_t has_monsters;
@@ -78,31 +79,26 @@ uint16_t rand(void);
 ISR(TIMER1_COMPA_vect) {
     //stack space = 5b (x, y, l, rotary, yinc)
     uint8_t x, y, l;
-    static int8_t xinc = MONSTER_SPEED;
     uint8_t shoot, yinc;
+    static int8_t xinc = MONSTER_SPEED;
+    static uint16_t shot_p = 65530;
     
+    //Monster-Cannon shot collision, and monster shooting
     shoot = get_switch_short(_BV(SWC));
-    rightmost = 0;
-    leftmost = LCDWIDTH;
-    yinc = 0;
     for(x = 0; x < MONSTERS_X; x++) {
         for(y = 0; y < MONSTERS_Y; y++) {
             if(monsters[x][y].alive) {
                 //Collision
                 if(collision(&monsters[x][y]))
                     continue;
-                //Update left/rightmost
-                if(monsters[x][y].x + MONSTER_WIDTH > rightmost)
-                    rightmost = monsters[x][y].x + MONSTER_WIDTH;
-                if(monsters[x][y].x < leftmost)
-                    leftmost = monsters[x][y].x;
                 //Monster shoot
-                if(rand() > 65530) {
+                if(rand() > shot_p) {
                     for(l = 0; l < MAX_MONSTER_LASERS; l++) {
                         if(!monster_lasers[l].alive) {
                             monster_lasers[l].x = monsters[x][y].x + (MONSTER_WIDTH / 2);
                             monster_lasers[l].y = monsters[x][y].y + MONSTER_HEIGHT;
                             monster_lasers[l].alive = TRUE;
+                            last_monster_lasers[l] = monster_lasers[l];
                             break;
                         }
                     }
@@ -110,7 +106,8 @@ ISR(TIMER1_COMPA_vect) {
             }
         }
     }
-    //Move & Collision Monster Lasers
+    
+    //Cannon-Monster laser collision, and monster laser moving
     for(l = 0; l < MAX_MONSTER_LASERS; l++) {
         if(monster_lasers[l].alive) {
             monster_lasers[l].y += LASER_SPEED;
@@ -125,6 +122,8 @@ ISR(TIMER1_COMPA_vect) {
             }
         }
     }
+    
+    //Move cannon lasers, and shoot
     for(l = 0; l < MAX_LASERS; l++) {
         if(lasers[l].alive) {
             //Move lasers
@@ -138,26 +137,46 @@ ISR(TIMER1_COMPA_vect) {
             lasers[l].x = cannon.x + (CANNON_WIDTH / 2) - LASER_WIDTH/2;
             lasers[l].y = cannon.y - LASER_HEIGHT;
             lasers[l].alive = TRUE;
+            last_lasers[l] = lasers[l];
         }
     }
+   
     //Move monsters
+    yinc = 0;
     if(leftmost < MONSTER_PADDING_X || rightmost > LCDWIDTH - MONSTER_PADDING_X) {
         xinc = -xinc;
-        yinc = MONSTER_SPEED;
+        yinc = MONSTER_SPEED * 3;
+        shot_p -= 2;
     }
     has_monsters = 0;
+    rightmost = bottommost = 0;
+    leftmost = topmost = LCDWIDTH;
     for(x = 0; x < MONSTERS_X; x++) {
         for(y = 0; y < MONSTERS_Y; y++) {
             if(monsters[x][y].alive) {
                 monsters[x][y].x += xinc;
                 monsters[x][y].y += yinc;
+                //Die when monsters get past cannon
                 if(monsters[x][y].y + MONSTER_HEIGHT >= cannon.y) {
                     lives = 0;
+                    return;
                 }
                 has_monsters = 1;
+                //Update left/right/top/bottommost
+                if(monsters[x][y].x + MONSTER_WIDTH > rightmost)
+                    rightmost = monsters[x][y].x + MONSTER_WIDTH;
+                if(monsters[x][y].x < leftmost)
+                    leftmost = monsters[x][y].x;
+                if(monsters[x][y].y + MONSTER_HEIGHT > bottommost)
+                    bottommost = monsters[x][y].y + MONSTER_HEIGHT;
+                if(monsters[x][y].y < topmost)
+                    topmost = monsters[x][y].y;
             }
         }
     }
+    left_o += xinc;
+    top_o += yinc;
+    
     //Move cannon
     int8_t rotary = os_enc_delta();
     if(rotary < 0 && cannon.x > 0) {
@@ -170,40 +189,77 @@ ISR(TIMER1_COMPA_vect) {
 
 ISR(INT6_vect) {
     uint8_t x, y, l;
-    clear_screen();
+    uint8_t right = left_o > last_left_o;
+    uint8_t change_topmost = top_o - last_top_o;
+    uint8_t change_leftmost = right ? left_o - last_left_o
+                                    : last_left_o - left_o;
     for(x = 0; x < MONSTERS_X; x++) {
         for(y = 0; y < MONSTERS_Y; y++) {
-            if(monsters[x][y].alive) {
-                fill_rectangle_c(last_monsters[x][y].x,
-                               last_monsters[x][y].y, 
-                               MONSTER_WIDTH, MONSTER_HEIGHT, 
-                               display.background);
-                write_image(monsters[x][y].x,
-                            monsters[x][y].y,
-                            monster_1);
-               
-                //fill_rectangle_c(monsters[x][y].x,
-                //               monsters[x][y].y,
-                //               MONSTER_WIDTH, MONSTER_HEIGHT,
-                //               RED);
+            if(monsters[x][y].alive) { //Draw sprite                        
+                //Vertical
+                if(change_topmost) {
+                    // Clear
+                    fill_rectangle_c(
+                        last_monsters[x][y].x,
+                        last_monsters[x][y].y,
+                        MONSTER_WIDTH,
+                        change_topmost - 1,     //This -1 does not make sense.
+                        display.background);
+                    // Draw
+                    fill_rectangle_c(
+                        monsters[x][y].x,
+                        last_monsters[x][y].y + MONSTER_HEIGHT,
+                        MONSTER_WIDTH,
+                        change_topmost,
+                        GREEN);
+                }
+                if(change_leftmost) {
+                    //Horizontal clear
+                    fill_rectangle_c(
+                        right ? last_monsters[x][y].x
+                              : monsters[x][y].x + MONSTER_WIDTH,
+                        monsters[x][y].y,
+                        change_leftmost,
+                        MONSTER_HEIGHT,
+                    display.background);
+                    //Horizontal draw
+                    fill_rectangle_c(
+                        right ? last_monsters[x][y].x + MONSTER_WIDTH
+                              : monsters[x][y].x,
+                        monsters[x][y].y,
+                        change_leftmost,
+                        MONSTER_HEIGHT,
+                        GREEN);
+                }
+                last_monsters[x][y] = monsters[x][y];
             } else if(last_monsters[x][y].alive) { //Has just died
                 fill_rectangle_c(last_monsters[x][y].x,
                                last_monsters[x][y].y,
                                MONSTER_WIDTH, MONSTER_HEIGHT,
                                display.background);
+                last_monsters[x][y] = monsters[x][y];
             }
-            last_monsters[x][y] = monsters[x][y];
         }
     }
+    if(change_topmost)
+        last_top_o = top_o;
+    if(change_leftmost)
+        last_left_o = left_o;
+    
     for(l = 0; l < MAX_LASERS; l++) {
         if(lasers[l].alive) {
-            fill_rectangle_c(last_lasers[l].x,
-                           last_lasers[l].y,
-                           LASER_WIDTH, LASER_HEIGHT,
-                           display.background);
-            fill_rectangle_c(lasers[l].x, lasers[l].y,
-                           LASER_WIDTH, LASER_HEIGHT,
-                           BLUE);
+            //Clear
+            fill_rectangle_c(lasers[l].x,
+                             lasers[l].y + LASER_HEIGHT,
+                             LASER_WIDTH, 
+                             last_lasers[l].y - lasers[l].y,
+                             display.background);
+            //Draw
+            fill_rectangle_c(lasers[l].x,
+                             lasers[l].y,
+                             LASER_WIDTH,
+                             last_lasers[l].y - lasers[l].y,
+                             BLUE);
         } else if(last_lasers[l].alive) { //Has just died
             fill_rectangle_c(last_lasers[l].x,
                            last_lasers[l].y,
@@ -214,13 +270,25 @@ ISR(INT6_vect) {
     }
     for(l = 0; l < MAX_MONSTER_LASERS; l++) {
         if(monster_lasers[l].alive) {
-            fill_rectangle_c(last_monster_lasers[l].x,
-                           last_monster_lasers[l].y,
-                           LASER_WIDTH, LASER_HEIGHT,
-                           display.background);
-            fill_rectangle_c(monster_lasers[l].x, monster_lasers[l].y,
-                           LASER_WIDTH, LASER_HEIGHT,
-                           BLUE);
+            //Clear
+            fill_rectangle_c(monster_lasers[l].x,
+                             last_monster_lasers[l].y,
+                             LASER_WIDTH,
+                             monster_lasers[l].y - last_monster_lasers[l].y,
+                             display.background);
+            //Draw
+            fill_rectangle_c(monster_lasers[l].x,
+                             last_monster_lasers[l].y + LASER_HEIGHT,
+                             LASER_WIDTH,
+                             monster_lasers[l].y - last_monster_lasers[l].y,
+                             RED);
+            // fill_rectangle_c(last_monster_lasers[l].x,
+                           // last_monster_lasers[l].y,
+                           // LASER_WIDTH, LASER_HEIGHT,
+                           // display.background);
+            // fill_rectangle_c(monster_lasers[l].x, monster_lasers[l].y,
+                           // LASER_WIDTH, LASER_HEIGHT,
+                           // BLUE);
         } else if(last_monster_lasers[l].alive) { //Has just died
             fill_rectangle_c(last_monster_lasers[l].x,
                            last_monster_lasers[l].y,
@@ -242,7 +310,10 @@ ISR(INT6_vect) {
 ISR(TIMER3_COMPA_vect)
 {
     scan_switches();
-    scan_encoder();
+    scan_encoder();                
+    // char buffer[4];
+    // sprintf(buffer, "%04d", before - after);
+    // display_string_xy(buffer, 10, 5);
 	//char buffer[6];
 	//sprintf(buffer, "%05d", rand());
 	//display_string  (buffer);
@@ -259,7 +330,7 @@ void os_init(void) {
     init_encoder();
     
     /* Frame rate */
-	set_frame_rate_hz(31); /* > 60 Hz  (KPZ 30.01.2015) */
+	set_frame_rate_hz(61); /* > 60 Hz  (KPZ 30.01.2015) */
     
 	/* Enable tearing interrupt to get flicker free display */
 	EIMSK |= _BV(INT6);
@@ -286,12 +357,20 @@ int main() {
                 monsters[x][y].x = x*(MONSTER_WIDTH+MONSTER_PADDING_X)+MONSTER_PADDING_X;
                 monsters[x][y].y = y*(MONSTER_HEIGHT+MONSTER_PADDING_Y)+MONSTER_TOP;
                 monsters[x][y].alive = 1;
+                fill_rectangle_c(monsters[x][y].x,
+                                 monsters[x][y].y,
+                                 MONSTER_WIDTH,
+                                 MONSTER_HEIGHT,
+                                 GREEN);
+                last_monsters[x][y] = monsters[x][y];
             }
         }
         has_monsters = 1;
         cannon = start_cannon;
-        leftmost = MONSTER_PADDING_X;
+        leftmost = left_o = last_left_o = MONSTER_PADDING_X;
         rightmost = MONSTERS_X*(MONSTER_WIDTH+MONSTER_PADDING_X);
+        topmost = top_o = last_top_o = MONSTER_TOP;
+        bottommost = MONSTERS_Y*(MONSTER_HEIGHT+MONSTER_PADDING_Y)+MONSTER_TOP-MONSTER_PADDING_Y;
         lives = 3;
         score = 0;
 		OCR1A = 65535;

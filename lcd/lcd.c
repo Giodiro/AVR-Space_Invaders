@@ -228,43 +228,26 @@ void fill_rectangle_indexed(rectangle r, uint16_t* col)
             write_data16(*col++);
 }
 
-void write_image(uint16_t x, uint16_t y, uint8_t *bitmap) {
-    uint8_t width, height;
-    uint16_t color0, color1;
-    uint8_t j, k, by, bit_position = 0;
-    
-    width = pgm_read_byte(bitmap++);
-    height = pgm_read_byte(bitmap++);
-    color0 = color565(pgm_read_byte(bitmap++),
-                      pgm_read_byte(bitmap++),
-                      pgm_read_byte(bitmap++));
-    color1 = color565(pgm_read_byte(bitmap++),
-                      pgm_read_byte(bitmap++),
-                      pgm_read_byte(bitmap++));
-                      
+
+void draw_vline(uint16_t x, uint16_t y, uint16_t h, uint16_t col) {
+    // Rudimentary clipping (Removed for speed)
+    //if((x >= _width) || (y >= _height)) return;
+
+    //if((y+h-1) >= _height) 
+    //h = _height-y;
     write_cmd(COLUMN_ADDRESS_SET);
     write_data16(x);
-    write_data16(x + width);
+    write_data16(x);
     write_cmd(PAGE_ADDRESS_SET);
     write_data16(y);
-    write_data16(y + height);
+    write_data16(y+h-1);
     write_cmd(MEMORY_WRITE);
-    
-    by = pgm_read_byte(bitmap++);
-    for(j = 0; j < width; j++) {
-        for(k = 0; k < height; k++) {
-            if(by & (1 << bit_position)) {
-                write_data16(color1);
-            } else {
-                write_data16(color0);
-            }
-            if(++bit_position == 8) {
-                by = pgm_read_byte(bitmap++);
-                bit_position = 0;
-            }
-        }
+  
+    while (h--) {
+        write_data16(col);
     }
 }
+
 
 void clear_screen()
 {

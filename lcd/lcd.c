@@ -8,6 +8,7 @@
 
 #include <avr/io.h>
 #include <avr/interrupt.h>
+#include <avr/pgmspace.h>
 #include <util/delay.h>
 #include "font.h"
 #include "ili934x.h"
@@ -94,8 +95,6 @@ void set_orientation(orientation o)
     write_data16(display.height-1);
 }
 
-
-
 void set_frame_rate_hz(uint8_t f)
 {
     uint8_t diva, rtna, period;
@@ -164,6 +163,96 @@ void fill_rectangle_c(uint16_t x, uint16_t y, uint16_t width, uint16_t height, u
         write_data16(col);
         write_data16(col);
         write_data16(col);
+    }
+}
+
+void fill_image_pgm(uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint16_t *col) {
+    write_cmd(COLUMN_ADDRESS_SET);
+    write_data16(x);
+    write_data16(x+width);
+    write_cmd(PAGE_ADDRESS_SET);
+    write_data16(y);
+    write_data16(y+height);
+    write_cmd(MEMORY_WRITE);
+/*  uint16_t x, y;
+    for(x=r.left; x<=r.right; x++)
+        for(y=r.top; y<=r.bottom; y++)
+            write_data16(col);
+*/
+    uint16_t wpixels = width + 1;
+    uint16_t hpixels = height + 1;
+    uint8_t mod8, div8;
+    uint16_t odm8, odd8;
+    if (hpixels > wpixels) {
+        mod8 = hpixels & 0x07;
+        div8 = hpixels >> 3;
+        odm8 = wpixels*mod8;
+        odd8 = wpixels*div8;
+    } else {
+        mod8 = wpixels & 0x07;
+        div8 = wpixels >> 3;
+        odm8 = hpixels*mod8;
+        odd8 = hpixels*div8;
+    }
+    uint8_t pix1 = odm8 & 0x07;
+    while(pix1--)
+        write_data16(pgm_read_word(col++));
+
+    uint16_t pix8 = odd8 + (odm8 >> 3);
+    while(pix8--) {
+        write_data16(pgm_read_word(col++));
+        write_data16(pgm_read_word(col++));
+        write_data16(pgm_read_word(col++));
+        write_data16(pgm_read_word(col++));
+        write_data16(pgm_read_word(col++));
+        write_data16(pgm_read_word(col++));
+        write_data16(pgm_read_word(col++));
+        write_data16(pgm_read_word(col++));
+    }
+}
+
+void fill_image(uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint16_t *col) {
+    write_cmd(COLUMN_ADDRESS_SET);
+    write_data16(x);
+    write_data16(x+width);
+    write_cmd(PAGE_ADDRESS_SET);
+    write_data16(y);
+    write_data16(y+height);
+    write_cmd(MEMORY_WRITE);
+/*  uint16_t x, y;
+    for(x=r.left; x<=r.right; x++)
+        for(y=r.top; y<=r.bottom; y++)
+            write_data16(col);
+*/
+    uint16_t wpixels = width + 1;
+    uint16_t hpixels = height + 1;
+    uint8_t mod8, div8;
+    uint16_t odm8, odd8;
+    if (hpixels > wpixels) {
+        mod8 = hpixels & 0x07;
+        div8 = hpixels >> 3;
+        odm8 = wpixels*mod8;
+        odd8 = wpixels*div8;
+    } else {
+        mod8 = wpixels & 0x07;
+        div8 = wpixels >> 3;
+        odm8 = hpixels*mod8;
+        odd8 = hpixels*div8;
+    }
+    uint8_t pix1 = odm8 & 0x07;
+    while(pix1--)
+        write_data16(*col++);
+
+    uint16_t pix8 = odd8 + (odm8 >> 3);
+    while(pix8--) {
+        write_data16(*col++);
+        write_data16(*col++);
+        write_data16(*col++);
+        write_data16(*col++);
+        write_data16(*col++);
+        write_data16(*col++);
+        write_data16(*col++);
+        write_data16(*col++);
     }
 }
 

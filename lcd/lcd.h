@@ -6,19 +6,12 @@
 #include <avr/io.h>
 #include <stdint.h>
 
-
 #define LCDWIDTH	240
 #define LCDHEIGHT	320
 
 /* Colour definitions RGB565 */
 #define WHITE       0xFFFF
 #define BLACK       0x0000
-#define BLUE        0x001F      
-#define GREEN       0x07E0
-#define CYAN        0x07FF      
-#define RED         0xF800      
-#define MAGENTA     0xF81F      
-#define YELLOW      0xFFE0      
 
 typedef enum {North, West, South, East} orientation;
 
@@ -51,3 +44,5 @@ void display_string_xy(char *str, uint16_t x, uint16_t y);
 void display_register(uint8_t reg);
 void fill_image(uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint16_t *col);
 void fill_image_pgm(uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint16_t *col);
+void start_rectangle_fill(uint16_t x, uint16_t y, uint16_t width, uint16_t height);
+void write_pixel(uint16_t color);

@@ -121,6 +121,20 @@ void set_frame_rate_hz(uint8_t f)
     write_data(rtna);
 }
 
+void start_rectangle_fill(uint16_t x, uint16_t y, uint16_t width, uint16_t height) {
+    write_cmd(COLUMN_ADDRESS_SET);
+    write_data16(x);
+    write_data16(x+width);
+    write_cmd(PAGE_ADDRESS_SET);
+    write_data16(y);
+    write_data16(y+height);
+    write_cmd(MEMORY_WRITE);
+}
+
+void write_pixel(uint16_t color) {
+    write_data16(color);
+}
+
 void fill_rectangle_c(uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint16_t col) {
     write_cmd(COLUMN_ADDRESS_SET);
     write_data16(x);
@@ -317,7 +331,6 @@ void fill_rectangle_indexed(rectangle r, uint16_t* col)
             write_data16(*col++);
 }
 
-
 void draw_vline(uint16_t x, uint16_t y, uint16_t h, uint16_t col) {
     // Rudimentary clipping (Removed for speed)
     //if((x >= _width) || (y >= _height)) return;
@@ -336,6 +349,8 @@ void draw_vline(uint16_t x, uint16_t y, uint16_t h, uint16_t col) {
         write_data16(col);
     }
 }
+
+
 
 
 void clear_screen()

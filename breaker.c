@@ -49,8 +49,8 @@
 #define HEART_HEIGHT        7
 
 //House
-#define HOUSE_WIDTH         32
-#define HOUSE_HEIGHT        24
+#define HOUSE_WIDTH         31
+#define HOUSE_HEIGHT        23
 #define HOUSE_COUNT         4
 #define HOUSE_PADDING_X     50
 #define HOUSE_START_X       20
@@ -69,18 +69,18 @@ typedef struct {
 
 const sprite start_cannon = {(LCDWIDTH-CANNON_WIDTH)/2, LCDHEIGHT-CANNON_HEIGHT-1, 1};
 const uint8_t start_house_data[24] = {
-    0xFF,0xFF,          // 11111111111111111111111111111111
-    0xFF,0xFF,          // 11111111111111111111111111111111
-    0xFF,0xFF,          // 11111111111111111111111111111111
-    0xFC,0x3F,          // 11111111111100000000111111111111
-    0xF8,0x1F,          // 11111111110000000000001111111111
-    0xF0,0x0F,          // 11111111000000000000000011111111
-    0xF0,0x0F,          // 11111111000000000000000011111111
-    0xF0,0x0F,          // 11111111000000000000000011111111
-    0xF0,0x0F,          // 11111111000000000000000011111111
-    0xF0,0x0F,          // 11111111000000000000000011111111
-    0xF0,0x0F,          // 11111111000000000000000011111111
-    0xF0,0x0F,          // 11111111000000000000000011111111
+    0xFF,0xFC,      //11111111111111111111111111110000    
+    0xFF,0xFC,      //11111111111111111111111111110000    
+    0xFF,0xFC,      //11111111111111111111111111110000    
+    0xF8,0x7C,      //11111111110000000011111111110000    
+    0xF0,0x3C,      //11111111000000000000111111110000    
+    0xE0,0x1C,      //11111100000000000000001111110000    
+    0xE0,0x1C,      //11111100000000000000001111110000    
+    0xE0,0x1C,      //11111100000000000000001111110000    
+    0xE0,0x1C,      //11111100000000000000001111110000    
+    0xE0,0x1C,      //11111100000000000000001111110000    
+    0xE0,0x1C,      //11111100000000000000001111110000    
+    0x00,0x00,      //00000000000000000000000000000000    
 };
 
 volatile sprite monsters[MONSTERS_X][MONSTERS_Y];
@@ -120,8 +120,7 @@ void draw_lives(void);
 void life_lost_sequence(void);
 uint8_t intersect_pp(sprite s1, uint8_t w1, uint8_t h1,
                      sprite s2, uint8_t w2, uint8_t h2,
-                     uint8_t *data, rectangle *result,
-                     uint8_t data_x_offset, uint8_t data_y_offset);
+                     uint8_t *data, rectangle *result);
 uint16_t rand(void);
 
 ISR(TIMER1_COMPA_vect) {
@@ -145,7 +144,7 @@ ISR(TIMER1_COMPA_vect) {
             } else if(intersect_sprite(cannon, CANNON_WIDTH, CANNON_HEIGHT,
                         monster_lasers[l], LASER_WIDTH, LASER_HEIGHT)) { //Colision with cannon
                 lives--;
-                lost_life = TRUE;              
+                lost_life = TRUE;
                 //Disable Timer1 interrupt.
                 TIMSK1 &= ~_BV(OCIE1A);
                 return;
@@ -156,9 +155,9 @@ ISR(TIMER1_COMPA_vect) {
                         //In the external if, a bounding box collision check is performed.
                         //In the internal if, a pixel perfect collision check is needed.
                         if(intersect_pp(monster_lasers[l], LASER_WIDTH, LASER_HEIGHT,
-                            houses[x], HOUSE_WIDTH, HOUSE_HEIGHT, house_data[x], &r, houses[x].x, houses[x].y)) {
+                            houses[x], HOUSE_WIDTH, HOUSE_HEIGHT, house_data[x], &r)) {
                             uint16_t tempx = (r.left - houses[x].x) >> 1;
-                            uint16_t tempy = (r.top - houses[x].y) >> 1;
+                            uint16_t tempy = (r.bottom - houses[x].y) >> 1;
                             house_data[x][(tempy << 1) + (tempx>>3)] &= ~(128 >> (tempx & 0x07));
                             monster_lasers[l].alive = FALSE;
                         }
@@ -175,6 +174,20 @@ ISR(TIMER1_COMPA_vect) {
         cannon_laser.y -= LASER_SPEED;
         if(cannon_laser.y <= LASER_SPEED) {
             cannon_laser.alive = FALSE;
+        }
+        
+        //House - cannon shot collision
+        for(x = 0; x < HOUSE_COUNT; x++) {
+            if (intersect_sprite(houses[x], HOUSE_WIDTH, HOUSE_HEIGHT,
+                                cannon_laser, LASER_WIDTH, LASER_HEIGHT)) {
+                 if(intersect_pp(cannon_laser, LASER_WIDTH, LASER_HEIGHT,
+                                houses[x], HOUSE_WIDTH, HOUSE_HEIGHT, house_data[x], &r)) {
+                    uint16_t tempx = ((r.left - houses[x].x) >> 1);
+                    uint16_t tempy = ((r.top - houses[x].y) >> 1);
+                    house_data[x][(tempy << 1) + (tempx>>3)] &= ~(128 >> (tempx & 0x07));
+                    cannon_laser.alive = FALSE;
+                }
+            }
         }
     } else if (shoot && !last_cannon_laser.alive) { //Ensure that 1 drawing cycle occurs before drawing again.
         //Cannon Shoot
@@ -196,20 +209,6 @@ ISR(TIMER1_COMPA_vect) {
             }
         }
     }
-    
-    //House - cannon shot collision
-    for(x = 0; x < HOUSE_COUNT; x++) {
-        if (intersect_sprite(houses[x], HOUSE_WIDTH, HOUSE_HEIGHT,
-                            cannon_laser, LASER_WIDTH, LASER_HEIGHT)) {
-             if(intersect_pp(cannon_laser, LASER_WIDTH, LASER_HEIGHT,
-                            houses[x], HOUSE_WIDTH, HOUSE_HEIGHT, house_data[x], &r, houses[x].x, houses[x].y)) {
-                uint16_t tempx = (r.left - houses[x].x) >> 1;
-                uint16_t tempy = (r.top - houses[x].y) >> 1;
-                house_data[x][(tempy << 1) + (tempx>>3)] &= ~(128 >> (tempx & 0x07));
-                cannon_laser.alive = FALSE;
-            }
-        }
-    }
    
     //Monsters moving & shooting
     if(!monster_tick) {
@@ -222,8 +221,9 @@ ISR(TIMER1_COMPA_vect) {
         has_monsters = 0;
         rightmost = bottommost = 0;
         leftmost = topmost = LCDWIDTH;
-        last_alive_monster_y = -1;
+        
         for(x = 0; x < MONSTERS_X; x++) {
+            last_alive_monster_y = -1;
             for(y = 0; y < MONSTERS_Y; y++) {
                 if(monsters[x][y].alive == 1) {
                     last_alive_monster_y = y;
@@ -280,7 +280,6 @@ ISR(INT6_vect) {
     //LIFE LOST
     if(lost_life) {
         life_lost_sequence();
-        TIMSK1 |= _BV(OCIE1A);
         return;
     }
     
@@ -305,7 +304,8 @@ ISR(INT6_vect) {
                 uint8_t index = (y<<1) + (x>>3);
                 uint8_t offset = 128 >> (x & 0x07);
                 if((house_data[h][index] & offset) != (old_house_data[h][index] & offset)) {
-                    fill_rectangle_c(houses[h].x + (x<<1), houses[h].y + (y<<1), 2, 2, BLACK);
+                    fill_rectangle_c(houses[h].x + (x<<1),
+                                     houses[h].y + (y<<1), 2, 2, BLACK);
                     old_house_data[h][index] = house_data[h][index];
                 }
             }
@@ -476,6 +476,7 @@ void life_lost_sequence(void) {
     lost_life = FALSE;
     cannon = last_cannon = start_cannon;
     reset_lasers();
+    TIMSK1 |= _BV(OCIE1A);
 }
 
 ISR(TIMER3_COMPA_vect)
@@ -614,8 +615,7 @@ static inline uint8_t intersect_sprite(sprite s1, uint8_t w1, uint8_t h1,
 
 uint8_t intersect_pp(sprite s1, uint8_t w1, uint8_t h1,
                      sprite s2, uint8_t w2, uint8_t h2,
-                     uint8_t *data, rectangle *result,
-                     uint8_t data_x_offset, uint8_t data_y_offset) {
+                     uint8_t *data, rectangle *result) {
     uint16_t left, right, top, bottom;
     uint16_t x, y;
     uint16_t tempx, tempy;
@@ -627,15 +627,15 @@ uint8_t intersect_pp(sprite s1, uint8_t w1, uint8_t h1,
     else left = s2.x;
     if(s1.x+w1 > s2.x+w2) right = s2.x+w2;
     else right = s1.x+w1;
-    
+
     //The divisions by 2 are because one bit in data represents 2 pixels.
-    tempy = (top - data_x_offset) >> 1;
-    for(y = top; y <= bottom; y+=2, tempy ++) {
-        for(x = left, tempx = (left - data_y_offset) >> 1; x <= right; x+=2, tempx++) {
+    tempy = ((top - s2.y) >> 1);
+    for(y = top; y <= bottom; y+=2, tempy++) {
+        for(x = left, tempx = ((left - s2.x) >> 1) ; x <= right; x+=2, tempx++) {
             //Since laser is never transparent, only need to check if
             //house (data) is opaque.
             uint8_t index = (tempy<<1) + (tempx>>3);
-            if(data[index] & (128 >> (x & 0x07))) {
+            if(data[index] & (128 >> (tempx & 0x07))) {
                 result->left = left;
                 result->right = right;
                 result->top = top;

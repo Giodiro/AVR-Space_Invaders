@@ -361,8 +361,7 @@ static uint16_t monster_sprite_exp[416] PROGMEM = {
 };
 
 //4x9
-static uint16_t triangle_sprite[36] PROGMEM = {
-    BLACK,BLACK,BLACK,BLACK,
+static uint16_t triangle_sprite[28] PROGMEM = {
     BLUE,BLACK,BLACK,BLACK,
     BLUE,BLUE,BLACK,BLACK,
     BLUE,BLUE,BLUE,BLACK,
@@ -370,5 +369,4 @@ static uint16_t triangle_sprite[36] PROGMEM = {
     BLUE,BLUE,BLUE,BLACK,
     BLUE,BLUE,BLACK,BLACK,
     BLUE,BLACK,BLACK,BLACK,
-    BLACK,BLACK,BLACK,BLACK
 };

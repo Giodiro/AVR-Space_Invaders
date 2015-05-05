@@ -50,7 +50,11 @@
 #define ASTRO_HEIGHT        14
 #define ASTRO_SPEED         1
 #define ASTRO_POINTS        200
-#define ASTRO_P             65519
+#ifdef ASTRO_DEBUG
+    #define ASTRO_P             6
+#else
+    #define ASTRO_P         65519
+#endif
 #define ASTRO_Y             16
 
 //Heart
@@ -73,7 +77,8 @@
 
 #define HOME_SCREEN_ITEMS   3
 #define TRIANGLE_WIDTH      3
-#define TRIANGLE_HEIGHT     8
+#define TRIANGLE_HEIGHT     6
+#define HOME_SCREEN_X       100
 
 #define STATE_HOME          0
 #define STATE_PLAY          1
@@ -82,6 +87,7 @@
 
 #define MAX_HIGH_SCORES     20
 #define EEPROM_VALIDITY_CANARY  0xABCD
+#define HIGH_SCORE_X        105
 
 typedef struct {
     uint16_t x, y;
@@ -235,7 +241,7 @@ void draw_cannon(void) {
 
 void draw_astro(void) {
     if(astro.alive) {
-        if(last_astro.x != astro.x) {
+        if(last_astro.x != astro.x && astro.alive <= 2) {
             //Clear
             fill_rectangle_c(last_astro.x, astro.y,
                              astro.x - last_astro.x,
@@ -247,12 +253,14 @@ void draw_astro(void) {
         }
         if(astro.alive >= 2 && astro.alive <= 9) {
             if(astro.alive == 2) {
-                fill_image_pgm_2b(astro.x + (ASTRO_WIDTH - MONSTER_WIDTH / 2), astro.y,
+                fill_image_pgm_2b(astro.x, astro.y,
                     MONSTER_WIDTH, MONSTER_HEIGHT, monster_sprite_exp);
+                fill_rectangle_c(astro.x + MONSTER_WIDTH, astro.y, 
+                    ASTRO_WIDTH - MONSTER_WIDTH, ASTRO_HEIGHT, display.background);
             }
             astro.alive++;
         } else if(astro.alive >= 10) {
-            fill_rectangle_c(astro.x, astro.y, ASTRO_WIDTH, ASTRO_HEIGHT, display.background);
+            fill_rectangle_c(astro.x, astro.y, MONSTER_WIDTH, MONSTER_HEIGHT, display.background);
             astro.alive = FALSE;
         }
         last_astro = astro;
@@ -281,7 +289,7 @@ void draw_monsters(void) {
                         MONSTER_WIDTH, change_topmost - 1, display.background);
                     
                 }
-                if(change_leftmost) {
+                if(change_leftmost && monsters[x][y].alive <= 2) {
                     //Horizontal clear
                     fill_rectangle_c(
                         right ? last_monsters[x][y].x
@@ -648,11 +656,16 @@ void in_game_movement(void) {
 }
 
 void home_screen_movement(void) {
-    int8_t rotary = os_enc_delta();
-    if(rotary < 0 && selected_item > 0)
-        selected_item--;
-    else if(rotary > 0)
-        selected_item = (selected_item + 1) % HOME_SCREEN_ITEMS;
+    static uint8_t tick = 0;
+    if(tick == 20) {
+        int8_t rotary = os_enc_delta();
+        if(rotary < 0 && selected_item > 0)
+            selected_item--;
+        else if(rotary > 0)
+            selected_item = (selected_item + 1) % HOME_SCREEN_ITEMS;
+        tick = 0;
+    }
+    tick++;
     
     if(get_switch_short(_BV(SWC))) {
         clear_switches();
@@ -690,22 +703,19 @@ void draw_home_screen(void) {
     clear_screen();
     uint8_t triangle_x, triangle_y;
     
-    display_string_xy_col("Play!", 135, 90, selected_item == 0 ? BLUE : WHITE);
-    display_string_xy_col("High scores", 105, 115, selected_item == 1 ? BLUE : WHITE);
-    display_string_xy_col("About", 135, 140, selected_item == 2 ? BLUE : WHITE);
+    display_string_xy_col("Play!", HIGH_SCORE_X, 90, selected_item == 0 ? BLUE : WHITE);
+    display_string_xy_col("High scores", HIGH_SCORE_X, 115, selected_item == 1 ? BLUE : WHITE);
+    display_string_xy_col("About", HIGH_SCORE_X, 140, selected_item == 2 ? BLUE : WHITE);
     
     switch(selected_item) {
-        case 0: triangle_x = 125;
-                triangle_y = 90;
+        case 0: triangle_y = 90;
                 break;
-        case 1: triangle_x = 95;
-                triangle_y = 115;
+        case 1: triangle_y = 115;
                 break;
-        case 2: triangle_x = 125;
-                triangle_y = 140;
+        case 2: triangle_y = 140;
                 break;
     }
-    fill_image_pgm(triangle_x, triangle_y, TRIANGLE_WIDTH, TRIANGLE_HEIGHT, triangle_sprite);
+    fill_image_pgm(HIGH_SCORE_X - TRIANGLE_WIDTH * 2, triangle_y, TRIANGLE_WIDTH, TRIANGLE_HEIGHT, triangle_sprite);
     last_selected_item = selected_item;
 }
 
@@ -714,23 +724,24 @@ void draw_high_scores(void) {
     char buff[4];
     if(is_highscore_drawn)
         return;
+    display_string_xy("HIGH SCORES", 105, 5);
     //Assumes MAX_HIGH_SCORES >= 3
-    h = 5;
-    display_string_xy_col(" 1.    ", 15, h, GOLD);
+    h = 20;
+    display_string_xy_col(" 1.    ", HIGH_SCORE_X, h, GOLD);
     sprintf(buff, "%04d", high_scores[0]);
     display_string_col(buff, GOLD);
     h+=10;
-    display_string_xy_col(" 2.    ", 15, h, SILVER);
+    display_string_xy_col(" 2.    ", HIGH_SCORE_X, h, SILVER);
     sprintf(buff, "%04d", high_scores[1]);
     display_string_col(buff, SILVER);
     h+=10;
-    display_string_xy_col(" 3.    ", 25, h, TAN);
+    display_string_xy_col(" 3.    ", HIGH_SCORE_X, h, TAN);
     sprintf(buff, "%04d", high_scores[2]);
     display_string_col(buff, TAN);
     h += 10;
     for(i = 3; i < MAX_HIGH_SCORES; i++, h+=10) {
         sprintf(buff, "%2d", i+1);
-        display_string_xy_col(buff, 15, h, WHITE);
+        display_string_xy_col(buff, HIGH_SCORE_X, h, WHITE);
         display_string_col(".    ", WHITE);
         sprintf(buff, "%04d", high_scores[i]);
         display_string_col(buff, WHITE);
@@ -936,7 +947,6 @@ void load_high_scores(void) {
 
 void store_high_scores(void) {
     uint8_t i;
-    display_string("Updating high scores");
     for(i = 0; i < MAX_HIGH_SCORES; i++) {
         eeprom_update_word(&eeprom_high_scores[i], high_scores[i]);
     }

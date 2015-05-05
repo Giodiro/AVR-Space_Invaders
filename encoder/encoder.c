@@ -163,3 +163,8 @@ uint8_t get_switch_short( uint8_t switch_mask ) {
 uint8_t get_switch_long( uint8_t switch_mask ) {
   return get_switch_press( get_switch_rpt( switch_mask ));
 }
+
+void clear_switches() {
+  switch_press = 0;
+  switch_rpt = 0;
+}

@@ -38,3 +38,4 @@ uint8_t get_switch_rpt( uint8_t switch_mask );
 uint8_t get_switch_state( uint8_t switch_mask );
 uint8_t get_switch_short( uint8_t switch_mask );
 uint8_t get_switch_long( uint8_t switch_mask );
+void clear_switches(void);

@@ -10,6 +10,7 @@
 #include <avr/pgmspace.h>
 #include <stdio.h>
 #include <util/delay.h>
+#include <avr/eeprom.h>
 #include "lcd.h"
 #include "encoder.h"
 #include "image.h"
@@ -79,6 +80,9 @@
 #define STATE_HIGH_SCORES   2
 #define STATE_ABOUT         3
 
+#define MAX_HIGH_SCORES     20
+#define EEPROM_VALIDITY_CANARY  0xABCD
+
 typedef struct {
     uint16_t x, y;
     uint8_t alive;
@@ -114,6 +118,8 @@ sprite monster_lasers[MAX_MONSTER_LASERS];
 sprite last_monster_lasers[MAX_MONSTER_LASERS];
 uint8_t house_data[HOUSE_COUNT][24];
 uint8_t old_house_data[HOUSE_COUNT][24];
+uint16_t EEMEM eeprom_high_scores[MAX_HIGH_SCORES + 1];
+uint16_t high_scores[MAX_HIGH_SCORES] = {0,1};
 //memory used for each sprite: 2B*2+1B = 5B
 //total memory = (6 * 4 * 2 + 2 + 5 * 2) * 5B = (48 + 2 + 10) * 5B = 300B
 
@@ -133,6 +139,9 @@ volatile uint8_t selected_item;
 volatile uint8_t last_selected_item;
 volatile uint8_t game_state;
 
+//High score stuff
+uint8_t is_highscore_drawn;
+
 static inline uint8_t intersect_sprite(sprite s1, uint8_t w1, uint8_t h1, 
                                        sprite s2, uint8_t w2, uint8_t h2);
 uint8_t collision(volatile sprite *monster);
@@ -149,6 +158,11 @@ void life_lost_sequence(void);
 void in_game_movement(void);
 void home_screen_movement(void);
 void draw_home_screen(void);
+void draw_high_scores(void);
+void high_score_movement(void);
+void load_high_scores(void);
+void store_high_scores(void);
+uint8_t save_high_score(uint16_t score);
 
 void draw_monster(volatile sprite *monster, uint8_t version);
 uint8_t intersect_pp(sprite s1, uint8_t w1, uint8_t h1,
@@ -161,8 +175,13 @@ ISR(TIMER1_COMPA_vect) {
     switch(game_state) {
         case STATE_HOME:
             home_screen_movement();
+            break;
         case STATE_PLAY:
             in_game_movement();
+            break;
+        case STATE_HIGH_SCORES:
+            high_score_movement();
+            break;
     }
 }
 
@@ -197,6 +216,10 @@ ISR(INT6_vect) {
             
             //HOUSES
             draw_houses();
+            break;
+        case STATE_HIGH_SCORES:
+            draw_high_scores();
+            break;
     }
 }
 
@@ -632,14 +655,31 @@ void home_screen_movement(void) {
         selected_item = (selected_item + 1) % HOME_SCREEN_ITEMS;
     
     if(get_switch_short(_BV(SWC))) {
+        clear_switches();
         switch(selected_item) {
-            case 0: game_state = STATE_PLAY;
-                    break;
-            case 1: game_state = STATE_HIGH_SCORES;
-                    break;
-            case 2: game_state = STATE_ABOUT;
-                    break;
+            case 0:
+                game_state = STATE_PLAY;
+                break;
+            case 1: 
+                clear_screen();
+                load_high_scores();
+                is_highscore_drawn = FALSE;
+                game_state = STATE_HIGH_SCORES;
+                break;
+            case 2: 
+                game_state = STATE_ABOUT;
+                break;
         }
+    }
+}
+
+void high_score_movement(void) {
+    if(get_switch_short(_BV(SWW))) {
+        clear_screen();
+        last_selected_item = 5;
+        selected_item = 1;
+        clear_switches();
+        game_state = STATE_HOME;
     }
 }
 
@@ -655,18 +695,47 @@ void draw_home_screen(void) {
     display_string_xy_col("About", 135, 140, selected_item == 2 ? BLUE : WHITE);
     
     switch(selected_item) {
-        case 0: triangle_x = 105;
+        case 0: triangle_x = 125;
                 triangle_y = 90;
                 break;
-        case 1: triangle_x = 75;
+        case 1: triangle_x = 95;
                 triangle_y = 115;
                 break;
-        case 2: triangle_x = 105;
+        case 2: triangle_x = 125;
                 triangle_y = 140;
                 break;
     }
     fill_image_pgm(triangle_x, triangle_y, TRIANGLE_WIDTH, TRIANGLE_HEIGHT, triangle_sprite);
     last_selected_item = selected_item;
+}
+
+void draw_high_scores(void) {
+    uint8_t i, h;
+    char buff[4];
+    if(is_highscore_drawn)
+        return;
+    //Assumes MAX_HIGH_SCORES >= 3
+    h = 5;
+    display_string_xy_col(" 1.    ", 15, h, GOLD);
+    sprintf(buff, "%04d", high_scores[0]);
+    display_string_col(buff, GOLD);
+    h+=10;
+    display_string_xy_col(" 2.    ", 15, h, SILVER);
+    sprintf(buff, "%04d", high_scores[1]);
+    display_string_col(buff, SILVER);
+    h+=10;
+    display_string_xy_col(" 3.    ", 25, h, TAN);
+    sprintf(buff, "%04d", high_scores[2]);
+    display_string_col(buff, TAN);
+    h += 10;
+    for(i = 3; i < MAX_HIGH_SCORES; i++, h+=10) {
+        sprintf(buff, "%2d", i+1);
+        display_string_xy_col(buff, 15, h, WHITE);
+        display_string_col(".    ", WHITE);
+        sprintf(buff, "%04d", high_scores[i]);
+        display_string_col(buff, WHITE);
+    }
+    is_highscore_drawn = TRUE;
 }
 
 ISR(TIMER3_COMPA_vect)
@@ -714,8 +783,9 @@ int main() {
 		OCR1A = 6192;
         //Home screen loop
         sei();
-        while(game_state == STATE_HOME);
+        while(game_state != STATE_PLAY);
         cli();
+        
         reset_sprites();
         clear_screen();
         //Game loop
@@ -768,6 +838,10 @@ int main() {
             display_string_xy("Game Over", 90, 150);
         } else {
             display_string_xy("YOU WIN!", 90, 150);
+            if(save_high_score(score)) {
+                store_high_scores();
+                display_string_xy("New highscore", 90, 160);
+            }
         }
         PORTB |= _BV(PB6);
         while(!get_switch_short(_BV(SWC))) {
@@ -842,6 +916,45 @@ uint8_t intersect_pp(sprite s1, uint8_t w1, uint8_t h1,
         }
     }
     return 0;
+}
+
+void load_high_scores(void) {
+    //Already loaded (high_scores is initialized with [0] = 0; [1] = 1;)
+    if(high_scores[0] >= high_scores[1])
+        return;
+    uint8_t i;
+    uint16_t canary = eeprom_read_word(&eeprom_high_scores[MAX_HIGH_SCORES]);
+    
+    for(i = 0; i < MAX_HIGH_SCORES; i++) {
+        if(canary != EEPROM_VALIDITY_CANARY) {
+            high_scores[i] = 0;
+        } else {
+            high_scores[i] = eeprom_read_word(&eeprom_high_scores[i]);
+        }
+    }
+}
+
+void store_high_scores(void) {
+    uint8_t i;
+    display_string("Updating high scores");
+    for(i = 0; i < MAX_HIGH_SCORES; i++) {
+        eeprom_update_word(&eeprom_high_scores[i], high_scores[i]);
+    }
+    eeprom_update_word(&eeprom_high_scores[MAX_HIGH_SCORES], EEPROM_VALIDITY_CANARY);
+}
+
+//Returns true if the score goes into high scores.
+uint8_t save_high_score(uint16_t score) {
+    uint8_t i = MAX_HIGH_SCORES - 1;
+    if(score < high_scores[i])
+        return FALSE;
+    while(i > 0 && score > high_scores[i-1])
+    {
+        high_scores[i] = high_scores[i-1];
+        i--;
+    }
+    high_scores[i] = score;
+    return TRUE;
 }
 
 uint16_t rand_init(void) {

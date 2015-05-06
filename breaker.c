@@ -4,6 +4,8 @@
  *
  */
 
+#define NEED_IMAGES
+ 
 #include <stdint.h>
 #include <avr/io.h>
 #include <avr/interrupt.h>
@@ -14,6 +16,7 @@
 #include "lcd.h"
 #include "encoder.h"
 #include "image.h"
+#include "keyboard.h"
 
 #define LED_INIT    DDRB  |=  _BV(PINB7)
 #define LED_ON      PORTB |=  _BV(PINB7)
@@ -84,6 +87,7 @@
 #define STATE_PLAY          1
 #define STATE_HIGH_SCORES   2
 #define STATE_ABOUT         3
+#define STATE_NEW_HIGH_SCORE 4
 
 #define MAX_HIGH_SCORES     20
 #define EEPROM_VALIDITY_CANARY  0xABCD
@@ -148,6 +152,9 @@ volatile uint8_t game_state;
 //High score stuff
 uint8_t is_highscore_drawn;
 
+//New High score stuff
+uint8_t is_new_high_drawn;
+
 static inline uint8_t intersect_sprite(sprite s1, uint8_t w1, uint8_t h1, 
                                        sprite s2, uint8_t w2, uint8_t h2);
 uint8_t collision(volatile sprite *monster);
@@ -165,6 +172,8 @@ void in_game_movement(void);
 void home_screen_movement(void);
 void draw_home_screen(void);
 void draw_high_scores(void);
+void draw_new_high_score(void);
+void new_high_score_movement(void);
 void high_score_movement(void);
 void load_high_scores(void);
 void store_high_scores(void);
@@ -187,6 +196,9 @@ ISR(TIMER1_COMPA_vect) {
             break;
         case STATE_HIGH_SCORES:
             high_score_movement();
+            break;
+        case STATE_NEW_HIGH_SCORE:
+            new_high_score_movement();
             break;
     }
 }
@@ -225,6 +237,9 @@ ISR(INT6_vect) {
             break;
         case STATE_HIGH_SCORES:
             draw_high_scores();
+            break;
+        case STATE_NEW_HIGH_SCORE:
+            draw_new_high_score();
             break;
     }
 }
@@ -656,8 +671,8 @@ void in_game_movement(void) {
 }
 
 void home_screen_movement(void) {
-    static uint8_t tick = 0;
-    if(tick == 20) {
+    static uint8_t tick = 9;
+    if(tick == 10) {
         int8_t rotary = os_enc_delta();
         if(rotary < 0 && selected_item > 0)
             selected_item--;
@@ -696,12 +711,22 @@ void high_score_movement(void) {
     }
 }
 
+void new_high_score_movement(void) {
+    if(move_keyboard()) { //Enter pressed
+        clear_screen();
+        last_selected_item = 5;
+        selected_item = 1;
+        //No need to clear switches (keyboard handles it)
+        game_state = STATE_HOME;
+    }
+}
+
 void draw_home_screen(void) {
     //character width = 10
+    uint8_t triangle_y;
     if(last_selected_item == selected_item)
         return;
     clear_screen();
-    uint8_t triangle_x, triangle_y;
     
     display_string_xy_col("Play!", HIGH_SCORE_X, 90, selected_item == 0 ? BLUE : WHITE);
     display_string_xy_col("High scores", HIGH_SCORE_X, 115, selected_item == 1 ? BLUE : WHITE);
@@ -714,6 +739,7 @@ void draw_home_screen(void) {
                 break;
         case 2: triangle_y = 140;
                 break;
+        default: return;
     }
     fill_image_pgm(HIGH_SCORE_X - TRIANGLE_WIDTH * 2, triangle_y, TRIANGLE_WIDTH, TRIANGLE_HEIGHT, triangle_sprite);
     last_selected_item = selected_item;
@@ -722,6 +748,7 @@ void draw_home_screen(void) {
 void draw_high_scores(void) {
     uint8_t i, h;
     char buff[4];
+    
     if(is_highscore_drawn)
         return;
     display_string_xy("HIGH SCORES", 105, 5);
@@ -747,6 +774,16 @@ void draw_high_scores(void) {
         display_string_col(buff, WHITE);
     }
     is_highscore_drawn = TRUE;
+}
+
+void draw_new_high_score(void) {
+    draw_keyboard();
+    if(is_new_high_drawn)
+        return;
+    
+    display_string_xy("New High Score!!!", 65, 20);
+    display_string_xy("Enter your name:", 0, 50);
+    is_new_high_drawn = TRUE;
 }
 
 ISR(TIMER3_COMPA_vect)
@@ -847,23 +884,29 @@ int main() {
         if(!lives) {
             life_lost_sequence();
             display_string_xy("Game Over", 90, 150);
+            clear_screen();
+            PORTB |= _BV(PB6);
+            while(!get_switch_short(_BV(SWC))) {
+                if(PINB % _BV(PB6))
+                    LED_ON;
+                else
+                    LED_OFF;
+                scan_switches();
+            }
         } else {
-            display_string_xy("YOU WIN!", 90, 150);
+            // display_string_xy("YOU WIN!", 90, 150);
             if(save_high_score(score)) {
+                clear_screen();
                 store_high_scores();
-                display_string_xy("New highscore", 90, 160);
+                game_state = STATE_NEW_HIGH_SCORE;
+                is_new_high_drawn = FALSE;
+                init_keyboard();
+                sei();
+                while(game_state == STATE_NEW_HIGH_SCORE);
+                cli();
             }
         }
-        PORTB |= _BV(PB6);
-        while(!get_switch_short(_BV(SWC))) {
-            if(PINB % _BV(PB6))
-                LED_ON;
-            else
-                LED_OFF;
-            scan_switches();
-        }
         reset_sprites();
-        clear_screen();
     } while(1);
 }
 

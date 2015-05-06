@@ -13,6 +13,8 @@
 #define WHITE       0xFFFF
 #define BLACK       0x0000
 
+#ifndef LCD_H
+#define LCD_H
 typedef enum {North, West, South, East} orientation;
 
 typedef struct {
@@ -28,6 +30,7 @@ typedef struct {
 	uint16_t left, right;
 	uint16_t top, bottom;
 } rectangle;	
+#endif
 
 void init_lcd();
 void lcd_brightness(uint8_t i);
@@ -38,7 +41,8 @@ void fill_rectangle(rectangle r, uint16_t col);
 void fill_rectangle_c(uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint16_t col);
 void draw_vline(uint16_t x, uint16_t y, uint16_t h, uint16_t col);
 void fill_rectangle_indexed(rectangle r, uint16_t* col);
-void display_char_col(char c, uint16_t col);
+void display_char_xy_col(char c, uint16_t x, uint16_t y, uint16_t fg, uint16_t bg);
+void display_char_col(char c, uint16_t fg, uint16_t bg);
 void display_char(char c);
 void display_string_col(char *str, uint16_t col);
 void display_string(char *str);

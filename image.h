@@ -1,3 +1,5 @@
+#ifndef IMAGE_H
+#define IMAGE_H
 #include <avr/pgmspace.h>
 
 #define ALICE_BLUE              0xEFBF
@@ -151,6 +153,7 @@
 #define WHITE_SMOKE             0xF79E
 #define YELLOW                  0xFFE0
 
+#ifdef NEED_IMAGES
 //27*11 = 297 * 2B = 594B
 static uint16_t cannon_sprite[297] PROGMEM = {
     BLACK,BLACK,BLACK,BLACK,BLACK,BLACK,BLACK,BLACK,BLACK,BLACK,BLACK,GREEN,GREEN,GREEN,GREEN,BLACK,BLACK,BLACK,BLACK,BLACK,BLACK,BLACK,BLACK,BLACK,BLACK,BLACK,BLACK,
@@ -370,3 +373,6 @@ static uint16_t triangle_sprite[28] PROGMEM = {
     BLUE,BLUE,BLACK,BLACK,
     BLUE,BLACK,BLACK,BLACK,
 };
+
+#endif /* NEED_IMAGES */
+#endif /* IMAGE_H */

@@ -412,7 +412,13 @@ void clear_screen()
     fill_rectangle(r, display.background);
 }
 
-void display_char_col(char c, uint16_t col)
+void display_char_xy_col(char c, uint16_t x, uint16_t y, uint16_t fg, uint16_t bg) {
+    display.x = x;
+    display.y = y;
+    display_char_col(c, fg, bg);
+}
+
+void display_char_col(char c, uint16_t fg, uint16_t bg)
 {
     uint16_t x, y;
     PGM_P fdata; 
@@ -440,28 +446,28 @@ void display_char_col(char c, uint16_t col)
         write_cmd(MEMORY_WRITE);
         bits = pgm_read_byte(fdata++);
         for(y=sp, mask=0x01; y<=ep; y++, mask<<=1)
-            write_data16((bits & mask) ? col : display.background);
+            write_data16((bits & mask) ? fg : bg);
     }
     write_cmd(COLUMN_ADDRESS_SET);
     write_data16(x);
     write_data16(x);
     write_cmd(MEMORY_WRITE);
     for(y=sp; y<=ep; y++)
-        write_data16(display.background);
+        write_data16(bg);
 
     display.x += 6;
     if (display.x >= display.width) { display.x=0; display.y+=8; }
 }
 
 void display_char(char c) {
-    display_char_col(c, display.foreground);
+    display_char_col(c, display.foreground, display.background);
 }
 
 void display_string_col(char *str, uint16_t col)
 {
     uint8_t i;
     for(i=0; str[i]; i++) 
-        display_char_col(str[i], col);
+        display_char_col(str[i], col, display.background);
 }
 
 void display_string(char *str) {
@@ -474,7 +480,7 @@ void display_string_xy_col(char *str, uint16_t x, uint16_t y, uint16_t col)
     display.x = x;
     display.y = y;
     for(i=0; str[i]; i++)
-        display_char_col(str[i], col);
+        display_char_col(str[i], col, display.background);
 }
 
 void display_string_xy(char *str, uint16_t x, uint16_t y)

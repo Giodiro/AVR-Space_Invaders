@@ -193,7 +193,7 @@ void init_keyboard() {
     last_sel = 0xFF;
     curr_array = lower_arr;
     sel = 0;
-    for(i = 0; i < MAX_STRING_SIZE; i++) {
+    for(i = 0; i < MAX_STRING_SIZE + 1; i++) {
         k_str[i] = '\0';
     }
 }

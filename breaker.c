@@ -91,13 +91,14 @@
 
 #define MAX_HIGH_SCORES     20
 #define EEPROM_VALIDITY_CANARY  0xABCD
-#define HIGH_SCORE_X        105
+#define HIGH_SCORE_X        85
 
 typedef struct {
     uint16_t x, y;
     uint8_t alive;
     uint8_t kind;
 } sprite;
+//Every sprite is 6 bytes
 
 const sprite start_cannon = {(LCDWIDTH-CANNON_WIDTH)/2, LCDHEIGHT-CANNON_HEIGHT-1, 1, 0};
 const uint8_t start_house_data[24] = {
@@ -116,22 +117,26 @@ const uint8_t start_house_data[24] = {
 };
 
 volatile sprite monsters[MONSTERS_X][MONSTERS_Y];
-volatile sprite cannon_laser;
-volatile sprite cannon;
 volatile sprite last_monsters[MONSTERS_X][MONSTERS_Y];
+volatile sprite cannon_laser;
 volatile sprite last_cannon_laser;
+volatile sprite cannon;
 volatile sprite last_cannon;
-volatile sprite houses[HOUSE_COUNT];
 volatile sprite astro;
 volatile sprite last_astro;
 sprite monster_lasers[MAX_MONSTER_LASERS];
 sprite last_monster_lasers[MAX_MONSTER_LASERS];
+volatile sprite houses[HOUSE_COUNT];
+//total memory = (5 * 5 * 2 + 6 + 5 * 2 + 4) * 6B = 70 * 6B = 420B
 uint8_t house_data[HOUSE_COUNT][24];
 uint8_t old_house_data[HOUSE_COUNT][24];
+//total memory = 4 * 24 * 2 + 20 * 2 = 232B
+
+
 uint16_t EEMEM eeprom_high_scores[MAX_HIGH_SCORES + 1];
+char EEMEM eeprom_high_score_names[MAX_HIGH_SCORES][MAX_STRING_SIZE + 1];
 uint16_t high_scores[MAX_HIGH_SCORES] = {0,1};
-//memory used for each sprite: 2B*2+1B = 5B
-//total memory = (6 * 4 * 2 + 2 + 5 * 2) * 5B = (48 + 2 + 10) * 5B = 300B
+char high_score_names[MAX_HIGH_SCORES][MAX_STRING_SIZE + 1];
 
 uint16_t leftmost, rightmost, topmost, bottommost;
 volatile int16_t left_o, top_o;
@@ -141,7 +146,7 @@ volatile uint8_t lives;
 volatile uint8_t has_monsters;
 volatile uint8_t lost_life;
 uint16_t random_seed;
-//total memory = 21B
+//total memory = 23B
 //TOTAL static = 321B ( plus defines ~= 350B)
 
 //Home screen stuff
@@ -149,11 +154,8 @@ volatile uint8_t selected_item;
 volatile uint8_t last_selected_item;
 volatile uint8_t game_state;
 
-//High score stuff
-uint8_t is_highscore_drawn;
-
-//New High score stuff
-uint8_t is_new_high_drawn;
+//High score/ New high score stuff
+uint8_t needs_drawing;
 
 static inline uint8_t intersect_sprite(sprite s1, uint8_t w1, uint8_t h1, 
                                        sprite s2, uint8_t w2, uint8_t h2);
@@ -177,7 +179,8 @@ void new_high_score_movement(void);
 void high_score_movement(void);
 void load_high_scores(void);
 void store_high_scores(void);
-uint8_t save_high_score(uint16_t score);
+uint8_t save_high_score(uint16_t score, char *name);
+uint8_t is_high_score(uint16_t score);
 
 void draw_monster(volatile sprite *monster, uint8_t version);
 uint8_t intersect_pp(sprite s1, uint8_t w1, uint8_t h1,
@@ -691,7 +694,7 @@ void home_screen_movement(void) {
             case 1: 
                 clear_screen();
                 load_high_scores();
-                is_highscore_drawn = FALSE;
+                needs_drawing = FALSE;
                 game_state = STATE_HIGH_SCORES;
                 break;
             case 2: 
@@ -749,7 +752,7 @@ void draw_high_scores(void) {
     uint8_t i, h;
     char buff[4];
     
-    if(is_highscore_drawn)
+    if(needs_drawing)
         return;
     display_string_xy("HIGH SCORES", 105, 5);
     //Assumes MAX_HIGH_SCORES >= 3
@@ -757,14 +760,20 @@ void draw_high_scores(void) {
     display_string_xy_col(" 1.    ", HIGH_SCORE_X, h, GOLD);
     sprintf(buff, "%04d", high_scores[0]);
     display_string_col(buff, GOLD);
+    display_string_col(" - ", GOLD);
+    display_string_col(high_score_names[0], GOLD);
     h+=10;
     display_string_xy_col(" 2.    ", HIGH_SCORE_X, h, SILVER);
     sprintf(buff, "%04d", high_scores[1]);
     display_string_col(buff, SILVER);
+    display_string_col(" - ", SILVER);
+    display_string_col(high_score_names[1], SILVER);
     h+=10;
     display_string_xy_col(" 3.    ", HIGH_SCORE_X, h, TAN);
     sprintf(buff, "%04d", high_scores[2]);
     display_string_col(buff, TAN);
+    display_string_col(" - ", TAN);
+    display_string_col(high_score_names[2], TAN);
     h += 10;
     for(i = 3; i < MAX_HIGH_SCORES; i++, h+=10) {
         sprintf(buff, "%2d", i+1);
@@ -772,18 +781,20 @@ void draw_high_scores(void) {
         display_string_col(".    ", WHITE);
         sprintf(buff, "%04d", high_scores[i]);
         display_string_col(buff, WHITE);
+        display_string_col(" - ", WHITE);
+        display_string_col(high_score_names[i], WHITE);
     }
-    is_highscore_drawn = TRUE;
+    needs_drawing = TRUE;
 }
 
 void draw_new_high_score(void) {
     draw_keyboard();
-    if(is_new_high_drawn)
+    if(needs_drawing)
         return;
     
-    display_string_xy("New High Score!!!", 65, 20);
+    display_string_xy("New High Score!!!", 95, 20);
     display_string_xy("Enter your name:", 0, 50);
-    is_new_high_drawn = TRUE;
+    needs_drawing = TRUE;
 }
 
 ISR(TIMER3_COMPA_vect)
@@ -895,15 +906,16 @@ int main() {
             }
         } else {
             // display_string_xy("YOU WIN!", 90, 150);
-            if(save_high_score(score)) {
+            if(is_high_score(score)) {
                 clear_screen();
-                store_high_scores();
                 game_state = STATE_NEW_HIGH_SCORE;
-                is_new_high_drawn = FALSE;
+                needs_drawing = FALSE;
                 init_keyboard();
                 sei();
                 while(game_state == STATE_NEW_HIGH_SCORE);
                 cli();
+                save_high_score(score, k_str);
+                store_high_scores();
             }
         }
         reset_sprites();
@@ -982,7 +994,9 @@ void load_high_scores(void) {
     for(i = 0; i < MAX_HIGH_SCORES; i++) {
         if(canary != EEPROM_VALIDITY_CANARY) {
             high_scores[i] = 0;
+            high_score_names[i][0] = '\0';
         } else {
+            eeprom_read_block((void *) high_score_names[i], (const void *)&eeprom_high_score_names[i], sizeof(char) * (MAX_STRING_SIZE + 1));
             high_scores[i] = eeprom_read_word(&eeprom_high_scores[i]);
         }
     }
@@ -992,21 +1006,35 @@ void store_high_scores(void) {
     uint8_t i;
     for(i = 0; i < MAX_HIGH_SCORES; i++) {
         eeprom_update_word(&eeprom_high_scores[i], high_scores[i]);
+        eeprom_update_block((const void*)high_score_names[i], (void *)&(eeprom_high_score_names[i]), sizeof(char) * (MAX_STRING_SIZE + 1));
     }
     eeprom_update_word(&eeprom_high_scores[MAX_HIGH_SCORES], EEPROM_VALIDITY_CANARY);
 }
 
+uint8_t is_high_score(uint16_t score) {
+    if(score < high_scores[MAX_HIGH_SCORES - 1])
+        return FALSE;
+    return TRUE;
+}
+
 //Returns true if the score goes into high scores.
-uint8_t save_high_score(uint16_t score) {
+//The name array is copied.
+uint8_t save_high_score(uint16_t score, char *name) {
+    uint8_t x;
     uint8_t i = MAX_HIGH_SCORES - 1;
     if(score < high_scores[i])
         return FALSE;
-    while(i > 0 && score > high_scores[i-1])
-    {
+    while(i > 0 && score > high_scores[i-1]) {
         high_scores[i] = high_scores[i-1];
+        for(x = 0; x < MAX_STRING_SIZE + 1; x++) {
+            high_score_names[i][x] = high_score_names[i-1][x];
+        }
         i--;
     }
     high_scores[i] = score;
+    for(x = 0; x < MAX_STRING_SIZE + 1; x++) {
+        high_score_names[i][x] = name[x];
+    }
     return TRUE;
 }
 

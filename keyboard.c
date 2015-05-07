@@ -1,13 +1,14 @@
-/* image.c
-   Testing image display in LaFortuna
+/*
+  Keyboard.c
+  On screen keyboard for AVR90USB1286
+  Allows input of lower/upper case keys, symbols (but not spaces).
+  Uses some RAM to store the various keyboard layouts (total around 100B)
 */
 
 #include <stdint.h>
 #include <avr/io.h>
-#include <stdio.h>
-#include <avr/interrupt.h>
 #include "lcd.h"
-#include "image.h"
+#include "svgrgb565.h"
 #include "encoder.h"
 #include "keyboard.h"
 
@@ -211,3 +212,12 @@ void draw_keyboard() {
         last_string_pos = string_pos;
     }
 }
+/*
+  Copyright 2015 Giacomo Meanti
+  At your option this work is licensed under a Creative Commons
+  Attribution-NonCommercial 3.0 Unported License [1], or under a
+  Creative Commons Attribution-ShareAlike 3.0 Unported License [2].
+  [1]: See: http://creativecommons.org/licenses/by-nc/3.0/
+  [2]: See: http://creativecommons.org/licenses/by-sa/3.0/
+  =================================================================
+*/

@@ -2,7 +2,8 @@
  * Licence: This work is licensed under the Creative Commons Attribution License.
  *           View this license at http://creativecommons.org/about/licenses/
  */
-
+#ifndef ILI934X_H
+#define ILI934X_H
 #define BLC			4
 #define RESET		7
 
@@ -100,4 +101,4 @@
 /* Undocumented commands */
 #define INTERNAL_IC_SETTING							0xCB
 #define GAMMA_DISABLE								0xF2
-
+#endif /* ILI934X_H */

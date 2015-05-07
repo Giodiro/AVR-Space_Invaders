@@ -16,6 +16,10 @@
  
 */
 
+#ifndef ENCODER_H
+#define ENCODER_H
+#include <stdint.h>
+
 #define SWN     PC2 /* North direction button */
 #define SWE     PC3 /* East direction button */
 #define SWS     PC4 /* South direction button */
@@ -25,7 +29,6 @@
 
 #define REPEAT_START    60      /* after 600ms */
 #define REPEAT_NEXT     10      /* every 100ms */
-
 void init_encoder(void);
 
 void scan_encoder(void);
@@ -39,3 +42,4 @@ uint8_t get_switch_state( uint8_t switch_mask );
 uint8_t get_switch_short( uint8_t switch_mask );
 uint8_t get_switch_long( uint8_t switch_mask );
 void clear_switches(void);
+#endif /* ENCODER_H */

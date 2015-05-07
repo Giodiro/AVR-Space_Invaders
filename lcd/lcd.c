@@ -17,8 +17,7 @@
 lcd display;
 static inline uint16_t color565(uint8_t r, uint8_t g, uint8_t b);
 
-void init_lcd()
-{
+void init_lcd() {
     /* Enable extended memory interface with 10 bit addressing */
     XMCRB = _BV(XMM2) | _BV(XMM1);
     XMCRA = _BV(SRE);
@@ -55,16 +54,14 @@ void init_lcd()
     PORTB |= _BV(BLC);
 }
 
-void lcd_brightness(uint8_t i)
-{
+void lcd_brightness(uint8_t i) {
     /* Configure Timer 2 Fast PWM Mode 3 */
     TCCR2A = _BV(COM2A1) | _BV(WGM21) | _BV(WGM20);
     TCCR2B = _BV(CS20);
     OCR2A = i;
 }
 
-void set_orientation(orientation o)
-{
+void set_orientation(orientation o) {
     display.orient = o;
     write_cmd(MEMORY_ACCESS_CONTROL);
     if (o==North) { 
@@ -95,8 +92,7 @@ void set_orientation(orientation o)
     write_data16(display.height-1);
 }
 
-void set_frame_rate_hz(uint8_t f)
-{
+void set_frame_rate_hz(uint8_t f) {
     uint8_t diva, rtna, period;
     if (f>118)
         f = 118;
@@ -119,65 +115,6 @@ void set_frame_rate_hz(uint8_t f)
     write_cmd(FRAME_CONTROL_IN_NORMAL_MODE);
     write_data(diva);
     write_data(rtna);
-}
-
-void start_rectangle_fill(uint16_t x, uint16_t y, uint16_t width, uint16_t height) {
-    write_cmd(COLUMN_ADDRESS_SET);
-    write_data16(x);
-    write_data16(x+width);
-    write_cmd(PAGE_ADDRESS_SET);
-    write_data16(y);
-    write_data16(y+height);
-    write_cmd(MEMORY_WRITE);
-}
-
-void write_pixel(uint16_t color) {
-    write_data16(color);
-}
-
-void fill_rectangle_c(uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint16_t col) {
-    write_cmd(COLUMN_ADDRESS_SET);
-    write_data16(x);
-    write_data16(x+width);
-    write_cmd(PAGE_ADDRESS_SET);
-    write_data16(y);
-    write_data16(y+height);
-    write_cmd(MEMORY_WRITE);
-/*  uint16_t x, y;
-    for(x=r.left; x<=r.right; x++)
-        for(y=r.top; y<=r.bottom; y++)
-            write_data16(col);
-*/
-    uint16_t wpixels = width + 1;
-    uint16_t hpixels = height + 1;
-    uint8_t mod8, div8;
-    uint16_t odm8, odd8;
-    if (hpixels > wpixels) {
-        mod8 = hpixels & 0x07;
-        div8 = hpixels >> 3;
-        odm8 = wpixels*mod8;
-        odd8 = wpixels*div8;
-    } else {
-        mod8 = wpixels & 0x07;
-        div8 = wpixels >> 3;
-        odm8 = hpixels*mod8;
-        odd8 = hpixels*div8;
-    }
-    uint8_t pix1 = odm8 & 0x07;
-    while(pix1--)
-        write_data16(col);
-
-    uint16_t pix8 = odd8 + (odm8 >> 3);
-    while(pix8--) {
-        write_data16(col);
-        write_data16(col);
-        write_data16(col);
-        write_data16(col);
-        write_data16(col);
-        write_data16(col);
-        write_data16(col);
-        write_data16(col);
-    }
 }
 
 void fill_image_pgm(uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint16_t *col) {
@@ -321,8 +258,7 @@ void fill_image(uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint16_
     }
 }
 
-void fill_rectangle(rectangle r, uint16_t col)
-{
+void fill_rectangle(rectangle r, uint16_t col) {
     write_cmd(COLUMN_ADDRESS_SET);
     write_data16(r.left);
     write_data16(r.right);
@@ -367,8 +303,52 @@ void fill_rectangle(rectangle r, uint16_t col)
     }
 }
 
-void fill_rectangle_indexed(rectangle r, uint16_t* col)
-{
+void fill_rectangle_c(uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint16_t col) {
+    write_cmd(COLUMN_ADDRESS_SET);
+    write_data16(x);
+    write_data16(x+width);
+    write_cmd(PAGE_ADDRESS_SET);
+    write_data16(y);
+    write_data16(y+height);
+    write_cmd(MEMORY_WRITE);
+/*  uint16_t x, y;
+    for(x=r.left; x<=r.right; x++)
+        for(y=r.top; y<=r.bottom; y++)
+            write_data16(col);
+*/
+    uint16_t wpixels = width + 1;
+    uint16_t hpixels = height + 1;
+    uint8_t mod8, div8;
+    uint16_t odm8, odd8;
+    if (hpixels > wpixels) {
+        mod8 = hpixels & 0x07;
+        div8 = hpixels >> 3;
+        odm8 = wpixels*mod8;
+        odd8 = wpixels*div8;
+    } else {
+        mod8 = wpixels & 0x07;
+        div8 = wpixels >> 3;
+        odm8 = hpixels*mod8;
+        odd8 = hpixels*div8;
+    }
+    uint8_t pix1 = odm8 & 0x07;
+    while(pix1--)
+        write_data16(col);
+
+    uint16_t pix8 = odd8 + (odm8 >> 3);
+    while(pix8--) {
+        write_data16(col);
+        write_data16(col);
+        write_data16(col);
+        write_data16(col);
+        write_data16(col);
+        write_data16(col);
+        write_data16(col);
+        write_data16(col);
+    }
+}
+
+void fill_rectangle_indexed(rectangle r, uint16_t* col) {
     uint16_t x, y;
     write_cmd(COLUMN_ADDRESS_SET);
     write_data16(r.left);
@@ -382,30 +362,8 @@ void fill_rectangle_indexed(rectangle r, uint16_t* col)
             write_data16(*col++);
 }
 
-void draw_vline(uint16_t x, uint16_t y, uint16_t h, uint16_t col) {
-    // Rudimentary clipping (Removed for speed)
-    //if((x >= _width) || (y >= _height)) return;
 
-    //if((y+h-1) >= _height) 
-    //h = _height-y;
-    write_cmd(COLUMN_ADDRESS_SET);
-    write_data16(x);
-    write_data16(x);
-    write_cmd(PAGE_ADDRESS_SET);
-    write_data16(y);
-    write_data16(y+h-1);
-    write_cmd(MEMORY_WRITE);
-  
-    while (h--) {
-        write_data16(col);
-    }
-}
-
-
-
-
-void clear_screen()
-{
+void clear_screen() {
     display.x = 0;
     display.y = 0;
     rectangle r = {0, display.width-1, 0, display.height-1};
@@ -418,8 +376,7 @@ void display_char_xy_col(char c, uint16_t x, uint16_t y, uint16_t fg, uint16_t b
     display_char_col(c, fg, bg);
 }
 
-void display_char_col(char c, uint16_t fg, uint16_t bg)
-{
+void display_char_col(char c, uint16_t fg, uint16_t bg) {
     uint16_t x, y;
     PGM_P fdata; 
     uint8_t bits, mask;
@@ -463,8 +420,7 @@ void display_char(char c) {
     display_char_col(c, display.foreground, display.background);
 }
 
-void display_string_col(char *str, uint16_t col)
-{
+void display_string_col(char *str, uint16_t col) {
     uint8_t i;
     for(i=0; str[i]; i++) 
         display_char_col(str[i], col, display.background);
@@ -474,8 +430,7 @@ void display_string(char *str) {
     display_string_col(str, display.foreground);
 }
 
-void display_string_xy_col(char *str, uint16_t x, uint16_t y, uint16_t col)
-{
+void display_string_xy_col(char *str, uint16_t x, uint16_t y, uint16_t col) {
     uint8_t i;
     display.x = x;
     display.y = y;
@@ -483,14 +438,11 @@ void display_string_xy_col(char *str, uint16_t x, uint16_t y, uint16_t col)
         display_char_col(str[i], col, display.background);
 }
 
-void display_string_xy(char *str, uint16_t x, uint16_t y)
-{
+void display_string_xy(char *str, uint16_t x, uint16_t y) {
     display_string_xy_col(str, x, y, display.foreground);
 }
 
-
-void display_register(uint8_t reg)
-{
+void display_register(uint8_t reg) {
 	uint8_t i;
 
 	for(i = 0; i < 8; i++) {
@@ -504,5 +456,88 @@ void display_register(uint8_t reg)
 
 static inline uint16_t color565(uint8_t r, uint8_t g, uint8_t b) {
 	return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
+}
+
+char* itoa(uint8_t i, char b[]){
+    char const digit[] = "0123456789";
+    char* p = b;
+    uint8_t shifter = i;
+    do{ //Move to where representation ends
+        ++p;
+        shifter = shifter/10;
+    }while(shifter);
+    *p = '\0';
+    do{ //Move back, inserting digits as u go
+        *--p = digit[i%10];
+        i = i/10;
+    }while(i);
+    return b;
+}
+
+char* longtoa(uint32_t i, char b[]) {
+    char const digit[] = "0123456789";
+    char* p = b;
+    uint32_t shifter = i;
+    do{ //Move to where representation ends
+        ++p;
+        shifter = shifter/10;
+    }while(shifter);
+    *p = '\0';
+    do{ //Move back, inserting digits as u go
+        *--p = digit[i%10];
+        i = i/10;
+    }while(i);
+    return b;
+}
+
+char* shorttoa(uint16_t i, char b[]) {
+    char const digit[] = "0123456789";
+    char* p = b;
+    uint16_t shifter = i;
+    do{ //Move to where representation ends
+        ++p;
+        shifter = shifter/10;
+    }while(shifter);
+    *p = '\0';
+    do{ //Move back, inserting digits as u go
+        *--p = digit[i%10];
+        i = i/10;
+    }while(i);
+    return b;
+}
+
+void display_uint8(uint8_t i) {
+    char b [3];
+    display_string(itoa(i, b));
+}
+
+void display_uint32(uint32_t i) {
+    char b [10];
+    display_string(longtoa(i, b));
+}
+
+void display_uint16(uint16_t i) {
+    char b [7];
+    display_string(shorttoa(i, b));    
+}
+
+void display_uint16_xy_col(uint16_t i, uint16_t x, uint16_t y, uint16_t col) {
+    char b [7];
+    display_string_xy_col(shorttoa(i, b), x, y, col);
+}
+
+void display_uint16_xy(uint16_t i, uint16_t x, uint16_t y) {
+    char b [7];
+    display_string_xy(shorttoa(i, b), x, y);
+}
+
+void display_uint16_col(uint16_t i, uint16_t col) {
+    char b [7];
+    display_string_col(shorttoa(i, b), col);
+}
+
+void display_uint8_xy_col(uint8_t i, uint16_t x, uint16_t y, uint16_t col) {
+    char b [3];
+    display_string_xy_col(itoa(i, b), x, y, col);
 }
 

@@ -1,22 +1,40 @@
 /*
- *
- * SPACE INVADERS FOR AVR90USB1286
- *
+  breaker.c
+  SPACE INVADERS FOR AVR90USB1286
+  An implementation of the arcade game Space Invaders for
+  the AVR MCU.
+  Features:
+   - All basic game play
+   - Special spaceships (at top)
+   - High-scores
+  Missing features:
+   - Sound
+   - Graphics is somewhat limited
+   - Houses do not explode in a pretty way
+   - Different game difficulties
+   
+   Timers used: Timer1 (16-bit) to trigger the game movement.
+   Timer 3 (16-bit) to scan LaFortuna's buttons for input.
+   Screen is drawn at approx. 30fps using the ILI9341 driver's
+   interrupts.
+   
+   Author: Giacomo Meanti
+   Code from other sources:
+     - encoder.c uses Peter Danneger's code for debouncing (adapted by Klaus-Peter Zauner)
+     - lcd.c uses Steve Gunn's code (adapted by Klaus-Peter Zauner and me)
  */
 
-#define NEED_IMAGES
- 
 #include <stdint.h>
 #include <avr/io.h>
 #include <avr/interrupt.h>
 #include <avr/pgmspace.h>
-#include <stdio.h>
 #include <util/delay.h>
 #include <avr/eeprom.h>
 #include "lcd.h"
 #include "encoder.h"
 #include "image.h"
 #include "keyboard.h"
+#include "svgrgb565.h"
 
 #define LED_INIT    DDRB  |=  _BV(PINB7)
 #define LED_ON      PORTB |=  _BV(PINB7)
@@ -132,11 +150,11 @@ uint8_t house_data[HOUSE_COUNT][24];
 uint8_t old_house_data[HOUSE_COUNT][24];
 //total memory = 4 * 24 * 2 + 20 * 2 = 232B
 
-
 uint16_t EEMEM eeprom_high_scores[MAX_HIGH_SCORES + 1];
 char EEMEM eeprom_high_score_names[MAX_HIGH_SCORES][MAX_STRING_SIZE + 1];
 uint16_t high_scores[MAX_HIGH_SCORES] = {0,1};
 char high_score_names[MAX_HIGH_SCORES][MAX_STRING_SIZE + 1];
+//total memory = 20 * 2B + 20 * 11 = 260B
 
 uint16_t leftmost, rightmost, topmost, bottommost;
 volatile int16_t left_o, top_o;
@@ -146,8 +164,6 @@ volatile uint8_t lives;
 volatile uint8_t has_monsters;
 volatile uint8_t lost_life;
 uint16_t random_seed;
-//total memory = 23B
-//TOTAL static = 321B ( plus defines ~= 350B)
 
 //Home screen stuff
 volatile uint8_t selected_item;
@@ -156,13 +172,13 @@ volatile uint8_t game_state;
 
 //High score/ New high score stuff
 uint8_t needs_drawing;
+//total memory = 27B
+//TOTAL static = 942B
 
-static inline uint8_t intersect_sprite(sprite s1, uint8_t w1, uint8_t h1, 
-                                       sprite s2, uint8_t w2, uint8_t h2);
-uint8_t collision(volatile sprite *monster);
 void reset_sprites(void);
 void draw_cannon(void);
 void draw_monsters(void);
+void draw_monster(volatile sprite *monster, uint8_t version);
 void draw_monster_lasers(void);
 void draw_lasers(void);
 void draw_score(void);
@@ -179,15 +195,20 @@ void new_high_score_movement(void);
 void high_score_movement(void);
 void load_high_scores(void);
 void store_high_scores(void);
-uint8_t save_high_score(uint16_t score, char *name);
+void save_high_score(uint16_t score, char *name);
 uint8_t is_high_score(uint16_t score);
-
-void draw_monster(volatile sprite *monster, uint8_t version);
 uint8_t intersect_pp(sprite s1, uint8_t w1, uint8_t h1,
                      sprite s2, uint8_t w2, uint8_t h2,
                      uint8_t *data, rectangle *result);
+static inline uint8_t intersect_sprite(sprite s1, uint8_t w1, uint8_t h1, 
+                                       sprite s2, uint8_t w2, uint8_t h2);
 uint16_t rand_init(void);
 uint16_t rand(void);
+
+ISR(TIMER3_COMPA_vect) {
+    scan_switches();
+    scan_encoder();           
+}
 
 ISR(TIMER1_COMPA_vect) {
     switch(game_state) {
@@ -213,29 +234,15 @@ ISR(INT6_vect) {
             break;
         case STATE_PLAY:
             draw_score();
-            
-            //LIFE LOST
             if(lost_life) {
                 life_lost_sequence();
                 return;
             }
-            
-            //MOVE MONSTER LASERS
             draw_monster_lasers();
-            
-            //MOVE MONSTERS
             draw_monsters();
-            
-            //MOVE LASER
             draw_lasers();
-              
-            //MOVE CANNON
             draw_cannon();
-            
-            //DRAW ASTRO
             draw_astro();
-            
-            //HOUSES
             draw_houses();
             break;
         case STATE_HIGH_SCORES:
@@ -399,9 +406,7 @@ void draw_lasers(void) {
 }
 
 void draw_score(void) {
-    char buffer[4];
-    sprintf(buffer, "%04d", score);
-    display_string_xy(buffer, 250, 5);
+    display_uint16_xy(score, 250, 5);
 }
 
 void draw_lives(void) {
@@ -413,34 +418,6 @@ void draw_lives(void) {
     for(;i < 3; i++, heart_offset += 13) {
         fill_rectangle_c(heart_offset, 5, HEART_WIDTH, HEART_HEIGHT, display.background);
     }
-}
-
-void life_lost_sequence(void) {
-    uint8_t frames = 7;
-    draw_lives();
-    while(frames--) {
-        fill_image_pgm(cannon.x, cannon.y,
-                       CANNON_WIDTH, CANNON_HEIGHT,
-                       cannon_sprite_2);
-        _delay_ms(75);
-        fill_image_pgm(cannon.x, cannon.y,
-                       CANNON_WIDTH, CANNON_HEIGHT,
-                       cannon_sprite_3);
-        _delay_ms(75);
-    }
-    fill_rectangle_c(last_cannon.x, last_cannon.y,
-                   CANNON_WIDTH, CANNON_HEIGHT,
-                   display.background);
-    fill_rectangle_c(cannon.x, cannon.y,
-                   CANNON_WIDTH, CANNON_HEIGHT,
-                   display.background);
-    lost_life = FALSE;
-    cannon = last_cannon = start_cannon;
-    //Clear the switches to prevent random firing as soon as game restarts.
-    get_switch_rpt(_BV(SWC)); 
-    get_switch_short(_BV(SWC));
-    reset_sprites();
-    TIMSK1 |= _BV(OCIE1A);
 }
 
 void draw_houses(void) {
@@ -501,6 +478,75 @@ void draw_monster(volatile sprite *monster, uint8_t version) {
     }
 }
 
+void draw_home_screen(void) {
+    //character width = 10
+    uint8_t triangle_y;
+    if(last_selected_item == selected_item)
+        return;
+    clear_screen();
+    
+    display_string_xy_col("Play!", HIGH_SCORE_X, 90, selected_item == 0 ? BLUE : WHITE);
+    display_string_xy_col("High scores", HIGH_SCORE_X, 115, selected_item == 1 ? BLUE : WHITE);
+    display_string_xy_col("About", HIGH_SCORE_X, 140, selected_item == 2 ? BLUE : WHITE);
+    
+    switch(selected_item) {
+        case 0: triangle_y = 90;
+                break;
+        case 1: triangle_y = 115;
+                break;
+        case 2: triangle_y = 140;
+                break;
+        default: return;
+    }
+    fill_image_pgm(HIGH_SCORE_X - TRIANGLE_WIDTH * 2, triangle_y, TRIANGLE_WIDTH, TRIANGLE_HEIGHT, triangle_sprite);
+    last_selected_item = selected_item;
+}
+
+void draw_high_scores(void) {
+    uint8_t i, h;
+    
+    if(needs_drawing)
+        return;
+    display_string_xy("HIGH SCORES (press left to go back)", 50, 5);
+    //Assumes MAX_HIGH_SCORES >= 3
+    h = 20;
+    display_string_xy_col(" 1.    ", HIGH_SCORE_X, h, GOLD);
+    display_uint16_col(high_scores[0], GOLD);
+    display_string_col(" - ", GOLD);
+    display_string_col(high_score_names[0], GOLD);
+    h+=10;
+    display_string_xy_col(" 2.    ", HIGH_SCORE_X, h, SILVER);
+    display_uint16_col(high_scores[1], SILVER);
+    display_string_col(" - ", SILVER);
+    display_string_col(high_score_names[1], SILVER);
+    h+=10;
+    display_string_xy_col(" 3.    ", HIGH_SCORE_X, h, TAN);
+    display_uint16_col(high_scores[2], TAN);
+    display_string_col(" - ", TAN);
+    display_string_col(high_score_names[2], TAN);
+    h += 10;
+    for(i = 3; i < MAX_HIGH_SCORES; i++, h+=10) {
+        display_uint8_xy_col(i+1, (i < 9 ? HIGH_SCORE_X + 6 : HIGH_SCORE_X), h, WHITE);
+        display_string_col(".    ", WHITE);
+        display_uint16_col(high_scores[i], WHITE);
+        display_string_col(" - ", WHITE);
+        display_string_col(high_score_names[i], WHITE);
+    }
+    needs_drawing = TRUE;
+}
+
+void draw_new_high_score(void) {
+    draw_keyboard();
+    if(needs_drawing)
+        return;
+    
+    display_string_xy("New High Score!!!", 95, 20);
+    display_string_xy("Enter your name:", 30, 50);
+    needs_drawing = TRUE;
+}
+
+//Long function to move all sprites (and detect events)
+//in the game loop.
 void in_game_movement(void) {
     //stack space = 10B
     uint8_t x, y, l;
@@ -580,9 +626,12 @@ void in_game_movement(void) {
         for(y = 0; y < MONSTERS_Y; y++) {
             if(monsters[x][y].alive == 1) {              
                 //Collision
-                if(collision(&monsters[x][y])) {
+                if(cannon_laser.alive && 
+                   intersect_sprite(cannon_laser, LASER_WIDTH, LASER_HEIGHT,
+                                    monsters[x][y], MONSTER_WIDTH, MONSTER_HEIGHT)) {
+                    cannon_laser.alive = FALSE;
+                    monsters[x][y].alive = 2;
                     score += MONSTER_POINTS;
-                    continue;
                 }
             }
         }
@@ -705,7 +754,7 @@ void home_screen_movement(void) {
 }
 
 void high_score_movement(void) {
-    if(get_switch_short(_BV(SWW))) {
+    if(get_switch_short(_BV(SWW))) { //Go back
         clear_screen();
         last_selected_item = 5;
         selected_item = 1;
@@ -724,83 +773,184 @@ void new_high_score_movement(void) {
     }
 }
 
-void draw_home_screen(void) {
-    //character width = 10
-    uint8_t triangle_y;
-    if(last_selected_item == selected_item)
-        return;
-    clear_screen();
-    
-    display_string_xy_col("Play!", HIGH_SCORE_X, 90, selected_item == 0 ? BLUE : WHITE);
-    display_string_xy_col("High scores", HIGH_SCORE_X, 115, selected_item == 1 ? BLUE : WHITE);
-    display_string_xy_col("About", HIGH_SCORE_X, 140, selected_item == 2 ? BLUE : WHITE);
-    
-    switch(selected_item) {
-        case 0: triangle_y = 90;
-                break;
-        case 1: triangle_y = 115;
-                break;
-        case 2: triangle_y = 140;
-                break;
-        default: return;
+//Displays the blinking cannon and performs some book-keeping when
+//a life is lost.
+void life_lost_sequence(void) {
+    uint8_t frames = 7;
+    draw_lives();
+    while(frames--) {
+        fill_image_pgm(cannon.x, cannon.y,
+                       CANNON_WIDTH, CANNON_HEIGHT,
+                       cannon_sprite_2);
+        _delay_ms(75);
+        fill_image_pgm(cannon.x, cannon.y,
+                       CANNON_WIDTH, CANNON_HEIGHT,
+                       cannon_sprite_3);
+        _delay_ms(75);
     }
-    fill_image_pgm(HIGH_SCORE_X - TRIANGLE_WIDTH * 2, triangle_y, TRIANGLE_WIDTH, TRIANGLE_HEIGHT, triangle_sprite);
-    last_selected_item = selected_item;
+    fill_rectangle_c(last_cannon.x, last_cannon.y,
+                   CANNON_WIDTH, CANNON_HEIGHT,
+                   display.background);
+    fill_rectangle_c(cannon.x, cannon.y,
+                   CANNON_WIDTH, CANNON_HEIGHT,
+                   display.background);
+    lost_life = FALSE;
+    cannon = last_cannon = start_cannon;
+    //Clear the switches to prevent random firing as soon as game restarts.
+    get_switch_rpt(_BV(SWC)); 
+    get_switch_short(_BV(SWC));
+    reset_sprites();
+    TIMSK1 |= _BV(OCIE1A);
 }
 
-void draw_high_scores(void) {
-    uint8_t i, h;
-    char buff[4];
-    
-    if(needs_drawing)
-        return;
-    display_string_xy("HIGH SCORES", 105, 5);
-    //Assumes MAX_HIGH_SCORES >= 3
-    h = 20;
-    display_string_xy_col(" 1.    ", HIGH_SCORE_X, h, GOLD);
-    sprintf(buff, "%04d", high_scores[0]);
-    display_string_col(buff, GOLD);
-    display_string_col(" - ", GOLD);
-    display_string_col(high_score_names[0], GOLD);
-    h+=10;
-    display_string_xy_col(" 2.    ", HIGH_SCORE_X, h, SILVER);
-    sprintf(buff, "%04d", high_scores[1]);
-    display_string_col(buff, SILVER);
-    display_string_col(" - ", SILVER);
-    display_string_col(high_score_names[1], SILVER);
-    h+=10;
-    display_string_xy_col(" 3.    ", HIGH_SCORE_X, h, TAN);
-    sprintf(buff, "%04d", high_scores[2]);
-    display_string_col(buff, TAN);
-    display_string_col(" - ", TAN);
-    display_string_col(high_score_names[2], TAN);
-    h += 10;
-    for(i = 3; i < MAX_HIGH_SCORES; i++, h+=10) {
-        sprintf(buff, "%2d", i+1);
-        display_string_xy_col(buff, HIGH_SCORE_X, h, WHITE);
-        display_string_col(".    ", WHITE);
-        sprintf(buff, "%04d", high_scores[i]);
-        display_string_col(buff, WHITE);
-        display_string_col(" - ", WHITE);
-        display_string_col(high_score_names[i], WHITE);
+
+//Reset sprites on life lost (lasers, and astro)
+void reset_sprites(void) {
+    uint8_t l;
+    cannon_laser.alive = FALSE;
+    for(l = 0; l < MAX_MONSTER_LASERS; l++) {
+        monster_lasers[l].alive = FALSE;
     }
-    needs_drawing = TRUE;
+    astro.alive = FALSE;
 }
 
-void draw_new_high_score(void) {
-    draw_keyboard();
-    if(needs_drawing)
+//Detect whether 2 rectangles intersect.
+static inline uint8_t intersect_sprite(sprite s1, uint8_t w1, uint8_t h1, 
+                                       sprite s2, uint8_t w2, uint8_t h2) {
+    return !(s2.x > s1.x + w1
+        || s2.x + w2 < s1.x
+        || s2.y > s1.y + h1
+        || s2.y + h2 < s1.y);
+}
+
+//Calculate pixel-perfect collision between sprite s1 and s2.
+//Collision area is reported in the result rectangle.
+//TRUE is returned if an actual collision occurred.
+uint8_t intersect_pp(sprite s1, uint8_t w1, uint8_t h1,
+                     sprite s2, uint8_t w2, uint8_t h2,
+                     uint8_t *data, rectangle *result) {
+    uint16_t left, right, top, bottom;
+    uint16_t x, y;
+    uint16_t tempx, tempy;
+    if(s1.y > s2.y) top = s1.y;
+    else top = s2.y;
+    if(s1.y+h1 > s2.y+h2) bottom = s2.y+h2;
+    else bottom = s1.y+h1;
+    if(s1.x > s2.x) left = s1.x;
+    else left = s2.x;
+    if(s1.x+w1 > s2.x+w2) right = s2.x+w2;
+    else right = s1.x+w1;
+
+    //The divisions by 2 are because one bit in data represents 2 pixels.
+    tempy = ((top - s2.y) >> 1);
+    for(y = top; y <= bottom; y+=2, tempy++) {
+        for(x = left, tempx = ((left - s2.x) >> 1) ; x <= right; x+=2, tempx++) {
+            //Since laser is never transparent, only need to check if
+            //house (data) is opaque.
+            uint8_t index = (tempy<<1) + (tempx>>3);
+            if(data[index] & (128 >> (tempx & 0x07))) {
+                result->left = left;
+                result->right = right;
+                result->top = top;
+                result->bottom = bottom;
+                return TRUE;
+            }
+        }
+    }
+    return FALSE;
+}
+
+//Load high scores and names from EEPROM.
+//It tries to detect wether high scores have already been loaded
+//and does not reload them.
+//If EEPROM contains invalid values, initialises the high scores to 0.
+void load_high_scores(void) {
+    //Already loaded (high_scores is initialized with [0] = 0; [1] = 1;)
+    if(high_scores[0] >= high_scores[1])
         return;
+    uint8_t i;
+    uint16_t canary = eeprom_read_word(&eeprom_high_scores[MAX_HIGH_SCORES]);
     
-    display_string_xy("New High Score!!!", 95, 20);
-    display_string_xy("Enter your name:", 0, 50);
-    needs_drawing = TRUE;
+    for(i = 0; i < MAX_HIGH_SCORES; i++) {
+        if(canary != EEPROM_VALIDITY_CANARY) {
+            high_scores[i] = 0;
+            high_score_names[i][0] = '\0';
+        } else {
+            eeprom_read_block((void *) high_score_names[i], (const void *)&eeprom_high_score_names[i], sizeof(char) * (MAX_STRING_SIZE + 1));
+            high_scores[i] = eeprom_read_word(&eeprom_high_scores[i]);
+        }
+    }
 }
 
-ISR(TIMER3_COMPA_vect)
-{
-    scan_switches();
-    scan_encoder();           
+//Save high scores and names in EEPROM
+void store_high_scores(void) {
+    uint8_t i;
+    for(i = 0; i < MAX_HIGH_SCORES; i++) {
+        eeprom_update_word(&eeprom_high_scores[i], high_scores[i]);
+        eeprom_update_block((const void*)high_score_names[i], (void *)&(eeprom_high_score_names[i]), sizeof(char) * (MAX_STRING_SIZE + 1));
+    }
+    eeprom_update_word(&eeprom_high_scores[MAX_HIGH_SCORES], EEPROM_VALIDITY_CANARY);
+}
+
+//Returns true if the score makes it in the high score list.
+//This function assumes that the high_scores array is already initialised.
+uint8_t is_high_score(uint16_t score) {
+    if(score < high_scores[MAX_HIGH_SCORES - 1])
+        return FALSE;
+    return TRUE;
+}
+
+//Update the high_scores array (and associated names array)
+//to insert the specified score. The name array is copied over.
+void save_high_score(uint16_t score, char *name) {
+    uint8_t x;
+    uint8_t i = MAX_HIGH_SCORES - 1;
+    if(score < high_scores[i])
+        return;
+    while(i > 0 && score > high_scores[i-1]) {
+        high_scores[i] = high_scores[i-1];
+        for(x = 0; x < MAX_STRING_SIZE + 1; x++) {
+            high_score_names[i][x] = high_score_names[i-1][x];
+        }
+        i--;
+    }
+    high_scores[i] = score;
+    for(x = 0; x < MAX_STRING_SIZE + 1; x++) {
+        high_score_names[i][x] = name[x];
+    }
+}
+
+uint16_t rand_init(void) {
+    //ADC conversion from unused pins should give random results.
+    //an amplification factor of 200x is used.
+    ADMUX |= _BV(REFS0) | _BV(MUX3) | _BV(MUX1) | _BV(MUX0);
+    //Prescaler
+    ADCSRA |= _BV(ADPS2) | _BV(ADPS1);
+    //Enable and start
+    ADCSRA |= _BV(ADEN) | _BV(ADSC);
+    //Wait until complete
+    while(! (ADCSRA & _BV(ADIF))) {
+        _delay_ms(2);
+    }
+    //Read result
+    uint16_t res = ADCL;
+    res |= ADCH << 8;
+    //Disable
+    ADCSRA &= ~_BV(ADEN);
+    
+    //The XOR should increase the randomness?
+    //since the converted number is only 10 bits
+    return res ^ 0xACE1u;
+}
+
+//http://en.wikipedia.org/wiki/Linear_feedback_shift_register
+uint16_t rand(void) {
+    unsigned lsb = random_seed & 1;  /* Get lsb (i.e., the output bit). */
+    random_seed >>= 1;               /* Shift register */
+    if (lsb == 1)             /* Only apply toggle mask if output bit is 1. */
+        random_seed ^= 0xB400u;        /* Apply toggle mask, value has 1 at bits corresponding
+                             * to taps, 0 elsewhere. */
+    return random_seed;
 }
 
 void os_init(void) {
@@ -905,7 +1055,8 @@ int main() {
                 scan_switches();
             }
         } else {
-            // display_string_xy("YOU WIN!", 90, 150);
+            display_string_xy("YOU WIN!", 130, 150); 
+            _delay_ms(300);
             if(is_high_score(score)) {
                 clear_screen();
                 game_state = STATE_NEW_HIGH_SCORE;
@@ -922,148 +1073,12 @@ int main() {
     } while(1);
 }
 
-void reset_sprites(void) {
-    uint8_t l;
-    cannon_laser.alive = FALSE;
-    for(l = 0; l < MAX_MONSTER_LASERS; l++) {
-        monster_lasers[l].alive = FALSE;
-    }
-    astro.alive = FALSE;
-}
-
-uint8_t collision(volatile sprite *monster) {
-    if(cannon_laser.alive && 
-            intersect_sprite(cannon_laser, LASER_WIDTH, LASER_HEIGHT,
-            *monster, MONSTER_WIDTH, MONSTER_HEIGHT)) {
-        cannon_laser.alive = FALSE;
-        monster->alive = 2;
-        return TRUE;
-    }
-    return FALSE;
-}
-
-static inline uint8_t intersect_sprite(sprite s1, uint8_t w1, uint8_t h1, 
-                                       sprite s2, uint8_t w2, uint8_t h2) {
-    return !(s2.x > s1.x + w1
-        || s2.x + w2 < s1.x
-        || s2.y > s1.y + h1
-        || s2.y + h2 < s1.y);
-}
-
-uint8_t intersect_pp(sprite s1, uint8_t w1, uint8_t h1,
-                     sprite s2, uint8_t w2, uint8_t h2,
-                     uint8_t *data, rectangle *result) {
-    uint16_t left, right, top, bottom;
-    uint16_t x, y;
-    uint16_t tempx, tempy;
-    if(s1.y > s2.y) top = s1.y;
-    else top = s2.y;
-    if(s1.y+h1 > s2.y+h2) bottom = s2.y+h2;
-    else bottom = s1.y+h1;
-    if(s1.x > s2.x) left = s1.x;
-    else left = s2.x;
-    if(s1.x+w1 > s2.x+w2) right = s2.x+w2;
-    else right = s1.x+w1;
-
-    //The divisions by 2 are because one bit in data represents 2 pixels.
-    tempy = ((top - s2.y) >> 1);
-    for(y = top; y <= bottom; y+=2, tempy++) {
-        for(x = left, tempx = ((left - s2.x) >> 1) ; x <= right; x+=2, tempx++) {
-            //Since laser is never transparent, only need to check if
-            //house (data) is opaque.
-            uint8_t index = (tempy<<1) + (tempx>>3);
-            if(data[index] & (128 >> (tempx & 0x07))) {
-                result->left = left;
-                result->right = right;
-                result->top = top;
-                result->bottom = bottom;
-                return 1;
-            }
-        }
-    }
-    return 0;
-}
-
-void load_high_scores(void) {
-    //Already loaded (high_scores is initialized with [0] = 0; [1] = 1;)
-    if(high_scores[0] >= high_scores[1])
-        return;
-    uint8_t i;
-    uint16_t canary = eeprom_read_word(&eeprom_high_scores[MAX_HIGH_SCORES]);
-    
-    for(i = 0; i < MAX_HIGH_SCORES; i++) {
-        if(canary != EEPROM_VALIDITY_CANARY) {
-            high_scores[i] = 0;
-            high_score_names[i][0] = '\0';
-        } else {
-            eeprom_read_block((void *) high_score_names[i], (const void *)&eeprom_high_score_names[i], sizeof(char) * (MAX_STRING_SIZE + 1));
-            high_scores[i] = eeprom_read_word(&eeprom_high_scores[i]);
-        }
-    }
-}
-
-void store_high_scores(void) {
-    uint8_t i;
-    for(i = 0; i < MAX_HIGH_SCORES; i++) {
-        eeprom_update_word(&eeprom_high_scores[i], high_scores[i]);
-        eeprom_update_block((const void*)high_score_names[i], (void *)&(eeprom_high_score_names[i]), sizeof(char) * (MAX_STRING_SIZE + 1));
-    }
-    eeprom_update_word(&eeprom_high_scores[MAX_HIGH_SCORES], EEPROM_VALIDITY_CANARY);
-}
-
-uint8_t is_high_score(uint16_t score) {
-    if(score < high_scores[MAX_HIGH_SCORES - 1])
-        return FALSE;
-    return TRUE;
-}
-
-//Returns true if the score goes into high scores.
-//The name array is copied.
-uint8_t save_high_score(uint16_t score, char *name) {
-    uint8_t x;
-    uint8_t i = MAX_HIGH_SCORES - 1;
-    if(score < high_scores[i])
-        return FALSE;
-    while(i > 0 && score > high_scores[i-1]) {
-        high_scores[i] = high_scores[i-1];
-        for(x = 0; x < MAX_STRING_SIZE + 1; x++) {
-            high_score_names[i][x] = high_score_names[i-1][x];
-        }
-        i--;
-    }
-    high_scores[i] = score;
-    for(x = 0; x < MAX_STRING_SIZE + 1; x++) {
-        high_score_names[i][x] = name[x];
-    }
-    return TRUE;
-}
-
-uint16_t rand_init(void) {
-    ADMUX |= _BV(REFS0) | _BV(MUX3) | _BV(MUX1) | _BV(MUX0);
-    //Prescaler
-    ADCSRA |= _BV(ADPS2) | _BV(ADPS1);
-    //Enable and start
-    ADCSRA |= _BV(ADEN) | _BV(ADSC);
-    //Wait until complete
-    while(! (ADCSRA & _BV(ADIF))) {
-        _delay_ms(2);
-    }
-    //Read result
-    uint16_t res = ADCL;
-    res |= ADCH << 8;
-    //Disable
-    ADCSRA &= ~_BV(ADEN);
-    return res;
-}
-
-//http://en.wikipedia.org/wiki/Linear_feedback_shift_register
-uint16_t rand(void) {
-    // static uint16_t random_seed = 0xACE1u;
-
-    unsigned lsb = random_seed & 1;  /* Get lsb (i.e., the output bit). */
-    random_seed >>= 1;               /* Shift register */
-    if (lsb == 1)             /* Only apply toggle mask if output bit is 1. */
-        random_seed ^= 0xB400u;        /* Apply toggle mask, value has 1 at bits corresponding
-                             * to taps, 0 elsewhere. */
-    return random_seed;
-}
+/*
+  Copyright 2015 Giacomo Meanti
+  At your option this work is licensed under a Creative Commons
+  Attribution-NonCommercial 3.0 Unported License [1], or under a
+  Creative Commons Attribution-ShareAlike 3.0 Unported License [2].
+  [1]: See: http://creativecommons.org/licenses/by-nc/3.0/
+  [2]: See: http://creativecommons.org/licenses/by-sa/3.0/
+  =================================================================
+*/

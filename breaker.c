@@ -555,7 +555,7 @@ void in_game_movement(void) {
     int8_t rotary;
     rectangle r;
     static int8_t xinc = MONSTER_SPEED;
-    static uint16_t shot_p = 62000;
+    static uint16_t shot_p = 62700;
     static uint8_t monster_tick = 0;
     monster_tick = (monster_tick + 1) % DRAW_MONSTERS_TICK;
        
@@ -1044,8 +1044,8 @@ int main() {
         LED_OFF;
         if(!lives) {
             life_lost_sequence();
-            display_string_xy("Game Over", 90, 150);
             clear_screen();
+            display_string_xy("Game Over (press center to play again)", 90, 150);
             PORTB |= _BV(PB6);
             while(!get_switch_short(_BV(SWC))) {
                 if(PINB % _BV(PB6))

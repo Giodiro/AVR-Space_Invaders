@@ -193,6 +193,7 @@ void init_keyboard() {
     uint8_t i;
     last_sel = 0xFF;
     curr_array = lower_arr;
+    string_pos = last_string_pos = 0;
     sel = 0;
     for(i = 0; i < MAX_STRING_SIZE + 1; i++) {
         k_str[i] = '\0';

@@ -1045,7 +1045,7 @@ int main() {
         if(!lives) {
             life_lost_sequence();
             clear_screen();
-            display_string_xy("Game Over (press center to play again)", 90, 150);
+            display_string_xy("Game Over (press center to play again)", 20, 150);
             PORTB |= _BV(PB6);
             while(!get_switch_short(_BV(SWC))) {
                 if(PINB % _BV(PB6))

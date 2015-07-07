@@ -74,7 +74,7 @@
 #ifdef ASTRO_DEBUG
     #define ASTRO_P             6
 #else
-    #define ASTRO_P         65519
+    #define ASTRO_P         65400
 #endif
 #define ASTRO_Y             16
 
@@ -167,11 +167,11 @@ uint16_t random_seed;
 
 //Home screen stuff
 volatile uint8_t selected_item;
-volatile uint8_t last_selected_item;
+volatile int8_t last_selected_item;
 volatile uint8_t game_state;
 
 //High score/ New high score stuff
-uint8_t needs_drawing;
+uint8_t is_drawn;
 //total memory = 27B
 //TOTAL static = 942B
 
@@ -181,6 +181,7 @@ void draw_monsters(void);
 void draw_monster(volatile sprite *monster, uint8_t version);
 void draw_monster_lasers(void);
 void draw_lasers(void);
+void draw_about(void);
 void draw_score(void);
 void draw_lives(void);
 void draw_astro(void);
@@ -188,6 +189,7 @@ void draw_houses(void);
 void life_lost_sequence(void);
 void in_game_movement(void);
 void home_screen_movement(void);
+void about_movement(void);
 void draw_home_screen(void);
 void draw_high_scores(void);
 void draw_new_high_score(void);
@@ -205,11 +207,13 @@ static inline uint8_t intersect_sprite(sprite s1, uint8_t w1, uint8_t h1,
 uint16_t rand_init(void);
 uint16_t rand(void);
 
+// ISR to scan rotary encoder input.
 ISR(TIMER3_COMPA_vect) {
     scan_switches();
     scan_encoder();           
 }
 
+// ISR for input handling & sprite movement.
 ISR(TIMER1_COMPA_vect) {
     switch(game_state) {
         case STATE_HOME:
@@ -224,9 +228,13 @@ ISR(TIMER1_COMPA_vect) {
         case STATE_NEW_HIGH_SCORE:
             new_high_score_movement();
             break;
+        case STATE_ABOUT:
+            about_movement();
+            break;
     }
 }
 
+// ISR for drawing. Triggered by screen refresh (tearing interrupt)
 ISR(INT6_vect) {
     switch(game_state) {
         case STATE_HOME:
@@ -250,6 +258,9 @@ ISR(INT6_vect) {
             break;
         case STATE_NEW_HIGH_SCORE:
             draw_new_high_score();
+            break;
+        case STATE_ABOUT:
+            draw_about();
             break;
     }
 }
@@ -505,7 +516,7 @@ void draw_home_screen(void) {
 void draw_high_scores(void) {
     uint8_t i, h;
     
-    if(needs_drawing)
+    if(is_drawn)
         return;
     display_string_xy("HIGH SCORES (press left to go back)", 50, 5);
     //Assumes MAX_HIGH_SCORES >= 3
@@ -532,17 +543,27 @@ void draw_high_scores(void) {
         display_string_col(" - ", WHITE);
         display_string_col(high_score_names[i], WHITE);
     }
-    needs_drawing = TRUE;
+    is_drawn = TRUE;
 }
 
 void draw_new_high_score(void) {
     draw_keyboard();
-    if(needs_drawing)
+    if(is_drawn)
         return;
     
     display_string_xy("New High Score!!!", 95, 20);
     display_string_xy("Enter your name:", 30, 50);
-    needs_drawing = TRUE;
+    is_drawn = TRUE;
+}
+
+void draw_about(void) {
+    if(is_drawn)
+        return;
+    display_string_xy("ABOUT (press left to go back)", 75, 5);
+    display_string_xy("Space Invaders clone for the LaFortuna board.", 5, 30);
+    display_string_xy("Written by Giacomo Meanti.", 5, 41);
+    
+    is_drawn = TRUE;
 }
 
 //Long function to move all sprites (and detect events)
@@ -743,11 +764,13 @@ void home_screen_movement(void) {
             case 1: 
                 clear_screen();
                 load_high_scores();
-                needs_drawing = FALSE;
+                is_drawn = FALSE;
                 game_state = STATE_HIGH_SCORES;
                 break;
             case 2: 
+                clear_screen();
                 game_state = STATE_ABOUT;
+                is_drawn = FALSE;
                 break;
         }
     }
@@ -756,8 +779,18 @@ void home_screen_movement(void) {
 void high_score_movement(void) {
     if(get_switch_short(_BV(SWW))) { //Go back
         clear_screen();
-        last_selected_item = 5;
+        last_selected_item = -1; // Force redraw of home screen
         selected_item = 1;
+        clear_switches();
+        game_state = STATE_HOME;
+    }
+}
+
+void about_movement(void) {
+    if(get_switch_short(_BV(SWW))) { // Go Back
+        clear_screen();
+        last_selected_item = -1; // Force redraw of home screen
+        selected_item = 2;
         clear_switches();
         game_state = STATE_HOME;
     }
@@ -766,7 +799,7 @@ void high_score_movement(void) {
 void new_high_score_movement(void) {
     if(move_keyboard()) { //Enter pressed
         clear_screen();
-        last_selected_item = 5;
+        last_selected_item = -1;
         selected_item = 1;
         //No need to clear switches (keyboard handles it)
         game_state = STATE_HOME;
@@ -988,7 +1021,7 @@ int main() {
     uint8_t x, y, h;
     do {
         game_state = STATE_HOME;
-        last_selected_item = 5;
+        last_selected_item = -1;
 		OCR1A = 6192;
         //Home screen loop
         sei();
@@ -1060,7 +1093,7 @@ int main() {
             if(is_high_score(score)) {
                 clear_screen();
                 game_state = STATE_NEW_HIGH_SCORE;
-                needs_drawing = FALSE;
+                is_drawn = FALSE;
                 init_keyboard();
                 sei();
                 while(game_state == STATE_NEW_HIGH_SCORE);

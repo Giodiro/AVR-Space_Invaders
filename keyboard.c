@@ -13,19 +13,11 @@
 #include "keyboard.h"
 
 #define START_X             10
-#define START_Y             LCD_HEIGHT - 100
+#define START_Y             display.height - 100
 
 #define K_GRID_SIZE         30
 #define K_COLUMNS           10
 #define K_ROWS              3
-
-#ifndef LCD_WIDTH
-#define LCD_WIDTH           320
-#endif
-
-#ifndef LCD_HEIGHT
-#define LCD_HEIGHT          240
-#endif
 
 #define CHAR_HEIGHT         7
 #define CHAR_WIDTH          5
@@ -67,6 +59,7 @@ typedef struct {
     uint8_t alive;
 } sprite;
 
+// Returns TRUE if Enter was pressed.
 uint8_t move_keyboard() {
     if(get_switch_short(_BV(SWC))) {
         char data = curr_array[sel];
